@@ -431,9 +431,21 @@ StatusBar {
 }
 
 StatusBar Label {
-    width: 1fr;
+    width: auto;
     padding: 0 1;
     content-align: left middle;
+}
+
+#status-metrics {
+    width: 1fr;
+}
+
+#status-skills {
+    width: auto;
+}
+
+#status-caido-exec {
+    width: auto;
 }
 
 /* Recon progress indicator — between chat and command input */
