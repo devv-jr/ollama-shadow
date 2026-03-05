@@ -1032,8 +1032,14 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 _llm_output_for_skills = (
                     content_acc + " " + thinking_acc).strip()
                 if _llm_output_for_skills:
-                    _new_skill_ctx = auto_load_skills_for_message(
+                    _new_skill_ctx, _new_loaded_skills = auto_load_skills_for_message(
                         _llm_output_for_skills)
+                    
+                    if _new_loaded_skills:
+                        for s in _new_loaded_skills:
+                            if s not in self.state.skills_used:
+                                self.state.skills_used.append(s)
+
                     if _new_skill_ctx:
                         # Avoid injecting the same skill context twice in a
                         # session
