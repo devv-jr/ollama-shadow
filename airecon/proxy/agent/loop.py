@@ -349,7 +349,12 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 {"role": "user", "content": user_message})
 
             # Auto-load relevant skills based on user message keywords
-            skill_context = auto_load_skills_for_message(user_message)
+            skill_context, loaded_skills = auto_load_skills_for_message(user_message)
+            if loaded_skills:
+                for s in loaded_skills:
+                    if s not in self.state.skills_used:
+                        self.state.skills_used.append(s)
+
             if skill_context:
                 self.state.conversation.append(
                     {"role": "system", "content": skill_context}

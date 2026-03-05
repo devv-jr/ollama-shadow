@@ -15,8 +15,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+import logging
 
 from .agent.session import SessionData
+
+logger = logging.getLogger("airecon.correlation")
 
 _DATA_DIR = Path(__file__).parent / "data"
 

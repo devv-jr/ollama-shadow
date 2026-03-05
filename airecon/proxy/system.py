@@ -256,14 +256,14 @@ def _load_skill_keywords() -> dict[str, str]:
 _SKILL_KEYWORDS: dict[str, str] = _load_skill_keywords()
 
 
-def auto_load_skills_for_message(user_message: str) -> str:
+def auto_load_skills_for_message(user_message: str) -> tuple[str, list[str]]:
     """Auto-detect relevant skills from user message and return their content.
 
-    Returns skill content ready for injection into conversation context.
+    Returns a tuple of (skill_context_string, list_of_loaded_skill_names).
     """
     skills_dir = Path(__file__).resolve().parent / "skills"
     if not skills_dir.exists():
-        return ""
+        return "", []
 
     msg_lower = user_message.lower()
     matched_skills: set[str] = set()
@@ -273,11 +273,12 @@ def auto_load_skills_for_message(user_message: str) -> str:
             matched_skills.add(skill_path)
 
     if not matched_skills:
-        return ""
+        return "", []
 
     # Limit to 4 skills to avoid context explosion but allow more relevant
     # loading
     parts: list[str] = []
+    loaded_names: list[str] = []
     for skill_rel in list(matched_skills)[:4]:
         skill_file = skills_dir / skill_rel
         if skill_file.exists():
@@ -295,15 +296,17 @@ def auto_load_skills_for_message(user_message: str) -> str:
                             skill_file.absolute().as_posix()})"
                     )
                 parts.append(f"[AUTO-LOADED SKILL: {skill_rel}]\n{content}")
+                loaded_names.append(skill_file.stem)
             except Exception:
                 pass
 
     if not parts:
-        return ""
+        return "", []
 
     return (
         "[SYSTEM: RELEVANT SKILLS AUTO-LOADED based on your request]\n"
-        + "\n---\n".join(parts)
+        + "\n---\n".join(parts),
+        loaded_names
     )
 
 

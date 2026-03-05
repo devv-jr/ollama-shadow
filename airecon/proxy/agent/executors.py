@@ -292,9 +292,14 @@ class _ExecutorMixin:
             if tool_name == "create_file":
                 result = await asyncio.to_thread(create_file, **arguments)
             elif tool_name == "read_file":
+                path_arg_clean = arguments.get("path", "")
+                if "skills/" in path_arg_clean and path_arg_clean.endswith(".md"):
+                    skill_name = os.path.basename(path_arg_clean).replace(".md", "")
+                    if skill_name not in self.state.skills_used:  # type: ignore[attr-defined]
+                        self.state.skills_used.append(skill_name)  # type: ignore[attr-defined]
                 result = await asyncio.to_thread(
                     read_file,
-                    path=arguments.get("path", ""),
+                    path=path_arg_clean,
                     offset=int(arguments.get("offset", 0)),
                     limit=int(arguments.get("limit", 500)),
                 )

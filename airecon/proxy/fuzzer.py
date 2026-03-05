@@ -42,14 +42,16 @@ try:
     with open(_data_file, "r") as f:
         _fuzzer_data = json.load(f)
 except FileNotFoundError:
-    raise ImportError(
-        f"AIRecon fuzzer data file not found at {_data_file}. "
+    logger.warning(
+        f"AIRecon fuzzer data file not found at {_data_file}. Fuzzer will be disabled. "
         "Ensure the package is installed correctly (pip install -e .)."
-    ) from None
+    )
+    _fuzzer_data = {}
 except json.JSONDecodeError as e:
-    raise ImportError(
-        f"AIRecon fuzzer data file is corrupted at {_data_file}: {e}"
-    ) from e
+    logger.warning(
+        f"AIRecon fuzzer data file is corrupted at {_data_file}: {e}. Fuzzer will be disabled."
+    )
+    _fuzzer_data = {}
 
 FUZZ_POINTS = _fuzzer_data.get("FUZZ_POINTS", [])
 FUZZ_PAYLOADS = _fuzzer_data.get("FUZZ_PAYLOADS", {})

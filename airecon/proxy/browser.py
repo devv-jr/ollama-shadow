@@ -63,6 +63,8 @@ class _BrowserState:
 _state = _BrowserState()
 
 
+_event_loop_ready = threading.Event()
+
 def _ensure_event_loop() -> None:
     if _state.event_loop is not None:
         return
@@ -70,13 +72,14 @@ def _ensure_event_loop() -> None:
     def run_loop() -> None:
         _state.event_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_state.event_loop)
+        _event_loop_ready.set()
         _state.event_loop.run_forever()
 
     _state.event_loop_thread = threading.Thread(target=run_loop, daemon=True)
     _state.event_loop_thread.start()
 
-    while _state.event_loop is None:
-        threading.Event().wait(0.01)
+    if not _event_loop_ready.wait(timeout=5.0):
+        raise RuntimeError("Timeout waiting for generic event loop to start")
 
 
 async def _create_browser() -> Browser:
