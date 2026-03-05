@@ -275,8 +275,12 @@ class BrowserInstance:
         page = self.pages[tab_id]
         delay = get_config().browser_page_load_delay
         await asyncio.sleep(delay)
-        screenshot_bytes = await page.screenshot(type="png", full_page=False)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+        try:
+            screenshot_bytes = await page.screenshot(type="png", full_page=False, timeout=5000)
+            screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+        except Exception as e:
+            logger.warning(f"Screenshot failed: {e}")
+            screenshot_b64 = ""
         url = page.url
         title = await page.title()
         viewport = page.viewport_size

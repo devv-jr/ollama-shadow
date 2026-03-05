@@ -980,4 +980,4 @@ MIT License. See `LICENSE` for details.
 
 ## Disclaimer
 
-This tool is for **educational purposes and authorized security testing only**. Always obtain proper authorization before scanning any target. The authors are not responsible for any misuse or damage caused by this tool.
+AIRecon is built strictly for **educational purposes, ethical hacking, and authorized security assessments**. Any actions and/or activities related to the material contained within this tool are solely your responsibility. The creators will not be held responsible for any criminal charges or illegal activities. Do not use this tool on systems or networks you do not own or have explicit permission to test.
