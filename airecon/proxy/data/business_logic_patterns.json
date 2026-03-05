@@ -1,0 +1,72 @@
+{
+  "price_manipulation": {
+    "description": "Manipulate prices in e-commerce",
+    "indicators": [
+      "price parameter",
+      "shopping cart",
+      "checkout"
+    ],
+    "severity": "HIGH"
+  },
+  "quantity_manipulation": {
+    "description": "Manipulate quantities for profit",
+    "indicators": [
+      "quantity parameter",
+      "inventory"
+    ],
+    "severity": "MEDIUM"
+  },
+  "currency_manipulation": {
+    "description": "Change currency for better rates",
+    "indicators": [
+      "currency parameter",
+      "exchange rate"
+    ],
+    "severity": "HIGH"
+  },
+  "coupon_abuse": {
+    "description": "Abuse coupon codes",
+    "indicators": [
+      "coupon code",
+      "discount",
+      "promo"
+    ],
+    "severity": "MEDIUM"
+  },
+  "privilege_escalation": {
+    "description": "Gain higher privileges",
+    "indicators": [
+      "role parameter",
+      "admin endpoint",
+      "user ID"
+    ],
+    "severity": "CRITICAL"
+  },
+  "race_condition": {
+    "description": "Race condition in transactions",
+    "indicators": [
+      "time-sensitive",
+      "payment",
+      "transfer"
+    ],
+    "severity": "HIGH"
+  },
+  "bypass_rate_limit": {
+    "description": "Bypass rate limiting",
+    "indicators": [
+      "rate limit",
+      "throttle",
+      "429"
+    ],
+    "severity": "MEDIUM"
+  },
+  "infinite_credits": {
+    "description": "Credit balance manipulation",
+    "indicators": [
+      "credit balance",
+      "points",
+      "wallet"
+    ],
+    "severity": "HIGH"
+  }
+}

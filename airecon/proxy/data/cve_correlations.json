@@ -1,0 +1,199 @@
+{
+  "CVE-2021-44228": {
+    "name": "Log4Shell",
+    "product": "Apache Log4j",
+    "severity": "CRITICAL",
+    "description": "Remote code execution in Log4j via JNDI",
+    "targets": [
+      "Java",
+      "Log4j",
+      "Apache Solr",
+      "Elasticsearch",
+      "Spring Boot",
+      "JBoss"
+    ]
+  },
+  "CVE-2024-38472": {
+    "name": "Apache HTTP SSRF",
+    "product": "Apache HTTP Server",
+    "severity": "HIGH",
+    "description": "SSRF on Apache HTTP servers",
+    "targets": [
+      "Apache",
+      "httpd"
+    ]
+  },
+  "CVE-2024-6387": {
+    "name": "regreSSHion",
+    "product": "OpenSSH",
+    "severity": "HIGH",
+    "description": "OpenSSH RCE via signal handler race condition",
+    "targets": [
+      "OpenSSH"
+    ]
+  },
+  "CVE-2023-46805": {
+    "name": "Ivanti Connect Secure Auth Bypass",
+    "product": "Ivanti / Pulse Secure",
+    "severity": "CRITICAL",
+    "description": "Auth bypass allowing RCE when chained with CVE-2024-21887",
+    "targets": [
+      "Ivanti",
+      "Pulse Secure"
+    ]
+  },
+  "CVE-2023-4966": {
+    "name": "CitrixBleed",
+    "product": "Citrix NetScaler ADC",
+    "severity": "CRITICAL",
+    "description": "Information disclosure of session tokens",
+    "targets": [
+      "Citrix",
+      "NetScaler"
+    ]
+  },
+  "CVE-2020-0796": {
+    "name": "SMBGhost",
+    "product": "Windows SMB",
+    "severity": "CRITICAL",
+    "description": "SMBv3 RCE",
+    "targets": [
+      "Windows",
+      "SMB"
+    ]
+  },
+  "CVE-2022-22965": {
+    "name": "Spring4Shell",
+    "product": "Spring Framework",
+    "severity": "CRITICAL",
+    "description": "RCE via Spring Framework",
+    "targets": [
+      "Spring",
+      "Spring Boot"
+    ]
+  },
+  "CVE-2021-26855": {
+    "name": "ProxyLogon",
+    "product": "Microsoft Exchange",
+    "severity": "CRITICAL",
+    "description": "Exchange Server pre-auth SSRF leading to RCE",
+    "targets": [
+      "Exchange",
+      "Outlook"
+    ]
+  },
+  "CVE-2021-34473": {
+    "name": "ProxyShell",
+    "product": "Microsoft Exchange",
+    "severity": "CRITICAL",
+    "description": "Exchange Server Pre-auth RCE",
+    "targets": [
+      "Exchange",
+      "Outlook"
+    ]
+  },
+  "CVE-2023-22527": {
+    "name": "Confluence OGNL RCE",
+    "product": "Atlassian Confluence",
+    "severity": "CRITICAL",
+    "description": "OGNL injection affecting Confluence Data Center and Server",
+    "targets": [
+      "Confluence"
+    ]
+  },
+  "CVE-2022-26134": {
+    "name": "Confluence RCE",
+    "product": "Atlassian Confluence",
+    "severity": "CRITICAL",
+    "description": "OGNL injection RCE",
+    "targets": [
+      "Confluence"
+    ]
+  },
+  "CVE-2019-5736": {
+    "name": "Docker Escape",
+    "product": "Docker",
+    "severity": "CRITICAL",
+    "description": "Container escape via runc",
+    "targets": [
+      "Docker",
+      "runc"
+    ]
+  },
+  "CVE-2020-14644": {
+    "name": "WebLogic RCE",
+    "product": "Oracle WebLogic",
+    "severity": "CRITICAL",
+    "description": "T3/IIOP RCE",
+    "targets": [
+      "WebLogic"
+    ]
+  },
+  "CVE-2021-43798": {
+    "name": "Grafana LFI",
+    "product": "Grafana",
+    "severity": "HIGH",
+    "description": "Arbitrary file read",
+    "targets": [
+      "Grafana"
+    ]
+  },
+  "CVE-2023-46604": {
+    "name": "ActiveMQ RCE",
+    "product": "Apache ActiveMQ",
+    "severity": "CRITICAL",
+    "description": "JNDI injection RCE",
+    "targets": [
+      "ActiveMQ"
+    ]
+  },
+  "CVE-2024-4577": {
+    "name": "PHP-CGI RCE",
+    "product": "PHP",
+    "severity": "CRITICAL",
+    "description": "PHP-CGI argument injection",
+    "targets": [
+      "PHP"
+    ]
+  },
+  "CVE-2023-34362": {
+    "name": "MOVEit Transfer SQLi",
+    "product": "Progress MOVEit",
+    "severity": "CRITICAL",
+    "description": "SQL injection leading to unauthenticated RCE",
+    "targets": [
+      "MOVEit"
+    ]
+  },
+  "CVE-2024-3400": {
+    "name": "PAN-OS GlobalProtect",
+    "product": "Palo Alto Networks",
+    "severity": "CRITICAL",
+    "description": "Unauthenticated Command Injection",
+    "targets": [
+      "Palo Alto",
+      "PAN-OS",
+      "GlobalProtect"
+    ]
+  },
+  "CVE-2022-40684": {
+    "name": "FortiOS Auth Bypass",
+    "product": "Fortinet FortiOS",
+    "severity": "CRITICAL",
+    "description": "Authentication bypass on administrative interface",
+    "targets": [
+      "Fortinet",
+      "FortiOS"
+    ]
+  },
+  "CVE-2021-21972": {
+    "name": "vCenter RCE",
+    "product": "VMware vCenter",
+    "severity": "CRITICAL",
+    "description": "Unauthenticated RCE in vSphere Client",
+    "targets": [
+      "vCenter",
+      "VMware"
+    ]
+  }
+}

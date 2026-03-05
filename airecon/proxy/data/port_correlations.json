@@ -1,0 +1,453 @@
+{
+  "3306": {
+    "service": "MySQL",
+    "vulns": [
+      "CVE-2021-27928 - MySQL arbitrary file read",
+      "CVE-2021-27927 - MySQL command injection",
+      "MySQL UDF command execution",
+      "MySQL authentication bypass",
+      "SQL injection in MySQL interface",
+      "Weak MySQL credentials",
+      "MySQL root default credentials"
+    ],
+    "tools": [
+      "nmap --script mysql*",
+      "hydra -M mysql"
+    ],
+    "severity": "CRITICAL"
+  },
+  "5432": {
+    "service": "PostgreSQL",
+    "vulns": [
+      "CVE-2024-1597 - pgSQL injection",
+      "CVE-2023-1596 - PostgreSQL RCE",
+      "PostgreSQL UDF command execution",
+      "PostgreSQL authentication bypass",
+      "COPY command RCE",
+      "pg_hba.conf misconfiguration"
+    ],
+    "tools": [
+      "nmap --script pgsql*",
+      "hydra -M postgres"
+    ],
+    "severity": "CRITICAL"
+  },
+  "27017": {
+    "service": "MongoDB",
+    "vulns": [
+      "MongoDB NoSQL injection",
+      "MongoDB authentication bypass",
+      "MongoDB admin access without auth",
+      "CVE-2020-7102 - MongoDB RCE"
+    ],
+    "tools": [
+      "nmap --script mongodb*",
+      "mongosh"
+    ],
+    "severity": "HIGH"
+  },
+  "6379": {
+    "service": "Redis",
+    "vulns": [
+      "Redis unauthenticated access",
+      "Redis write crontab for RCE",
+      "Redis Lua sandbox escape",
+      "CVE-2022-24736 - Lua sandbox escape",
+      "Redis module loading RCE"
+    ],
+    "tools": [
+      "redis-cli",
+      "nmap --script redis*"
+    ],
+    "severity": "CRITICAL"
+  },
+  "1433": {
+    "service": "MSSQL",
+    "vulns": [
+      "MSSQL xp_cmdshell RCE",
+      "MSSQL authentication bypass",
+      "CVE-2020-0618 - MSSQL RCE",
+      "MSSQL linked server abuse"
+    ],
+    "tools": [
+      "nmap --script ms-sql*",
+      "impacket-mssqlclient"
+    ],
+    "severity": "CRITICAL"
+  },
+  "1521": {
+    "service": "Oracle",
+    "vulns": [
+      "Oracle TNS listener poisoning",
+      "Oracle default credentials",
+      "Oracle SQL injection",
+      "CVE-2020-14644 - Oracle WebLogic RCE"
+    ],
+    "tools": [
+      "nmap --script oracle*",
+      "oscanner"
+    ],
+    "severity": "HIGH"
+  },
+  "9200": {
+    "service": "Elasticsearch",
+    "vulns": [
+      "CVE-2021-44228 - Log4Shell (if Java)",
+      "Elasticsearch unauthenticated access",
+      "Elasticsearch query injection",
+      "CVE-2015-1427 - Groovy RCE"
+    ],
+    "tools": [
+      "nmap --script elasticsearch*"
+    ],
+    "severity": "HIGH"
+  },
+  "11211": {
+    "service": "Memcached",
+    "vulns": [
+      "Memcached amplification attack",
+      "Memcached unauthenticated access",
+      "Memcached keys exposure"
+    ],
+    "tools": [
+      "nmap --script memcached*"
+    ],
+    "severity": "MEDIUM"
+  },
+  "5984": {
+    "service": "CouchDB",
+    "vulns": [
+      "CouchDB unauthenticated access",
+      "CVE-2017-12636 - CouchDB RCE",
+      "CVE-2017-12635 - CouchDB admin bypass"
+    ],
+    "tools": [
+      "nmap --script couchdb*"
+    ],
+    "severity": "HIGH"
+  },
+  "7001": {
+    "service": "WebLogic",
+    "vulns": [
+      "CVE-2020-14644 - WebLogic RCE",
+      "CVE-2020-14883 - WebLogic SSRF",
+      "CVE-2019-2725 - WebLogic RCE",
+      "CVE-2018-2894 - WebLogic SSRF"
+    ],
+    "tools": [
+      "nmap --script weblogic*"
+    ],
+    "severity": "CRITICAL"
+  },
+  "8080": {
+    "service": "HTTP Proxy",
+    "vulns": [
+      "HTTP Proxy unauthenticated access",
+      "Open proxy for internal scanning",
+      "CVE-2020-1938 - Tomcat AJP"
+    ],
+    "tools": [
+      "nmap --script http-proxy*"
+    ],
+    "severity": "MEDIUM"
+  },
+  "8009": {
+    "service": "Apache JServ",
+    "vulns": [
+      "CVE-2020-1938 - Ghostcat (AJP)",
+      "Tomcat AJP injection"
+    ],
+    "tools": [
+      "nmap -p 8009 --script ajp*"
+    ],
+    "severity": "HIGH"
+  },
+  "8089": {
+    "service": "Splunk/Other",
+    "vulns": [
+      "Splunk enterprise RCE",
+      "Splunk unauthenticated access"
+    ],
+    "tools": [],
+    "severity": "HIGH"
+  },
+  "8443": {
+    "service": "Alt HTTPS",
+    "vulns": [
+      "Similar to 443 - various HTTPS vulns",
+      "Self-signed certificate"
+    ],
+    "tools": [
+      "nmap -p 8443 --script ssl*"
+    ],
+    "severity": "MEDIUM"
+  },
+  "2375": {
+    "service": "Docker",
+    "vulns": [
+      "Docker daemon exposed",
+      "Docker container escape",
+      "CVE-2019-5736 - Docker escape",
+      "Docker API unauthenticated"
+    ],
+    "tools": [
+      "docker -H tcp://target:2375 ps"
+    ],
+    "severity": "CRITICAL"
+  },
+  "2376": {
+    "service": "Docker TLS",
+    "vulns": [
+      "Docker TLS API exposed",
+      "Docker certificate issues"
+    ],
+    "tools": [
+      "docker -H tcp://target:2376 info"
+    ],
+    "severity": "HIGH"
+  },
+  "6443": {
+    "service": "Kubernetes API",
+    "vulns": [
+      "Kubernetes API unauthenticated",
+      "Kubernetes pod access",
+      "K8s service account tokens",
+      "CVE-2018-1002105 - K8s privilege escalation"
+    ],
+    "tools": [
+      "kubectl --server=https://target:6443"
+    ],
+    "severity": "CRITICAL"
+  },
+  "10250": {
+    "service": "Kubernetes Kubelet",
+    "vulns": [
+      "Kubelet unauthenticated API",
+      "Container escape via kubelet"
+    ],
+    "tools": [
+      "nmap -p 10250 --script kubelet*"
+    ],
+    "severity": "CRITICAL"
+  },
+  "9090": {
+    "service": "Prometheus",
+    "vulns": [
+      "Prometheus unauthenticated access",
+      "Prometheus metrics exposure"
+    ],
+    "tools": [],
+    "severity": "MEDIUM"
+  },
+  "15672": {
+    "service": "RabbitMQ",
+    "vulns": [
+      "RabbitMQ default credentials",
+      "RabbitMQ management API access"
+    ],
+    "tools": [],
+    "severity": "MEDIUM"
+  },
+  "5601": {
+    "service": "Kibana",
+    "vulns": [
+      "CVE-2019-7609 - Kibana RCE",
+      "Kibana unauthenticated access"
+    ],
+    "tools": [],
+    "severity": "HIGH"
+  },
+  "9000": {
+    "service": "PHP-FPM",
+    "vulns": [
+      "PHP-FPM socket exposure",
+      "CVE-2019-11043 - PHP-FPM RCE"
+    ],
+    "tools": [],
+    "severity": "HIGH"
+  },
+  "9001": {
+    "service": "Portainer/Docker",
+    "vulns": [
+      "Portainer unauthenticated",
+      "Docker management UI"
+    ],
+    "tools": [],
+    "severity": "HIGH"
+  },
+  "27018": {
+    "service": "MongoDB Shard",
+    "vulns": [
+      "MongoDB sharded cluster issues"
+    ],
+    "tools": [],
+    "severity": "MEDIUM"
+  },
+  "28017": {
+    "service": "MongoDB Stats",
+    "vulns": [
+      "MongoDB stats page exposure"
+    ],
+    "tools": [],
+    "severity": "LOW"
+  },
+  "5000": {
+    "service": "Docker Registry",
+    "vulns": [
+      "Docker Registry unauthenticated",
+      "Image exposure"
+    ],
+    "tools": [],
+    "severity": "MEDIUM"
+  },
+  "50070": {
+    "service": "Hadoop",
+    "vulns": [
+      "Hadoop unauthenticated access",
+      "Hadoop command execution"
+    ],
+    "tools": [],
+    "severity": "HIGH"
+  },
+  "8020": {
+    "service": "Hadoop NameNode",
+    "vulns": [
+      "Hadoop NameNode web UI"
+    ],
+    "tools": [],
+    "severity": "MEDIUM"
+  },
+  "10000": {
+    "service": "Webmin",
+    "vulns": [
+      "Webmin RCE",
+      "CVE-2019-15107 - Webmin RCE"
+    ],
+    "tools": [
+      "nmap --script webmin*"
+    ],
+    "severity": "CRITICAL"
+  },
+  "3128": {
+    "service": "Squid Proxy",
+    "vulns": [
+      "Open proxy",
+      "Squid misconfiguration"
+    ],
+    "tools": [],
+    "severity": "MEDIUM"
+  },
+  "3389": {
+    "service": "RDP",
+    "vulns": [
+      "BlueKeep - CVE-2019-0708",
+      "RDP brute force",
+      "RDP NLA bypass"
+    ],
+    "tools": [
+      "ncrack -p 3389"
+    ],
+    "severity": "HIGH"
+  },
+  "5900": {
+    "service": "VNC",
+    "vulns": [
+      "VNC authentication bypass",
+      "VNC weak passwords"
+    ],
+    "tools": [
+      "vncpwn"
+    ],
+    "severity": "HIGH"
+  },
+  "22": {
+    "service": "SSH",
+    "vulns": [
+      "SSH weak keys",
+      "CVE-2024-3094 - xz backdoor",
+      "SSH brute force",
+      "SSH key disclosure"
+    ],
+    "tools": [
+      "ncrack -p 22",
+      "ssh-audit"
+    ],
+    "severity": "HIGH"
+  },
+  "21": {
+    "service": "FTP",
+    "vulns": [
+      "FTP anonymous access",
+      "FTP cleartext credentials",
+      "CVE-2021-41773 - Apache path traversal"
+    ],
+    "tools": [
+      "nmap --script ftp*",
+      "hydra -p ftp"
+    ],
+    "severity": "MEDIUM"
+  },
+  "25": {
+    "service": "SMTP",
+    "vulns": [
+      "SMTP relay",
+      "SMTP user enumeration",
+      "CVE-2020-28017 - Exim RCE"
+    ],
+    "tools": [
+      "nmap --script smtp*",
+      "smtp-user-enum"
+    ],
+    "severity": "MEDIUM"
+  },
+  "110": {
+    "service": "POP3",
+    "vulns": [
+      "POP3 cleartext credentials"
+    ],
+    "tools": [],
+    "severity": "LOW"
+  },
+  "143": {
+    "service": "IMAP",
+    "vulns": [
+      "IMAP cleartext credentials"
+    ],
+    "tools": [],
+    "severity": "LOW"
+  },
+  "53": {
+    "service": "DNS",
+    "vulns": [
+      "DNS zone transfer",
+      "DNS cache poisoning",
+      "DNSSEC issues"
+    ],
+    "tools": [
+      "dig axfr",
+      "nmap --script dns*"
+    ],
+    "severity": "MEDIUM"
+  },
+  "123": {
+    "service": "NTP",
+    "vulns": [
+      "NTP amplification"
+    ],
+    "tools": [],
+    "severity": "LOW"
+  },
+  "161": {
+    "service": "SNMP",
+    "vulns": [
+      "SNMP community strings",
+      "SNMP info disclosure",
+      "CVE-2021-43297 - SNMP RCE"
+    ],
+    "tools": [
+      "onesixtyone",
+      "snmpwalk"
+    ],
+    "severity": "HIGH"
+  }
+}

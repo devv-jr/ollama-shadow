@@ -1,0 +1,32 @@
+[PIPELINE PHASE: RECON — Reconnaissance & Enumeration]
+
+OBJECTIVE: Map the complete attack surface and gather foundational intelligence before analysis.
+
+KEY INTELLIGENCE REQUIRED:
+1. Comprehensive subdomain/host enumeration (need: 10+ subdomains minimum)
+2. Open ports and services (need: complete view of exposed services)
+3. Technology stack & versions (framework, language, server, database)
+4. Web directories and API endpoints (need: map all visible routes)
+5. Exposed files and configuration data (lookups, archives, public sources)
+6. JavaScript analysis for dynamic endpoints and hardcoded secrets
+7. Historical data and DNS records (wayback, DNS history, whois)
+
+RECON COMPLETION CRITERIA:
+✓ Multiple subdomains discovered and validated (DNS resolution, HTTP status)
+✓ At least 3 different port/service combinations identified
+✓ Technology fingerprints obtained for each service
+✓ API endpoints or web routes enumerated from multiple sources
+✓ Evidence saved persistently in output/ directory
+
+PERSISTENCE REQUIREMENT:
+- Store all findings in structured output files (ex: subdomains.txt, endpoints.txt, tech_stack.txt, etc)
+- Do NOT rely on memory — save after EACH successful enumeration
+- Reference these saved files in subsequent phases
+
+FALLBACK STRATEGIES:
+- If direct enumeration blocked: try passive sources (DNS history, certificate transparency, OSINT)
+- If rate-limited: adjust timing, use distributed approaches, retry later
+- If all techniques fail on a target: document and move to analysis of what WAS found
+
+DO NOT attempt exploitation or vulnerability testing. Focus on information gathering only.
+When attack surface is adequately mapped, the pipeline will transition to ANALYSIS.

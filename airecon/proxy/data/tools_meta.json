@@ -1,0 +1,243 @@
+{
+    "categories": {
+        "reconnaissance": {
+            "subdomain_enum": [
+                "subfinder",
+                "amass",
+                "assetfinder",
+                "findomain",
+                "shuffledns",
+                "massdns",
+                "dnsx"
+            ],
+            "port_scan": [
+                "nmap",
+                "masscan",
+                "naabu"
+            ],
+            "web_probing": [
+                "httpx",
+                "httprobe",
+                "nrich",
+                "curl",
+                "wget"
+            ],
+            "fingerprinting": [
+                "whatweb",
+                "wappalyzer",
+                "fingerprintx",
+                "tlsx",
+                "nmap -sV"
+            ],
+            "parameter_discovery": [
+                "arjun",
+                "x8",
+                "param-miner"
+            ],
+            "crawling": [
+                "katana",
+                "waybackurls",
+                "gau",
+                "gospider",
+                "waymore",
+                "hakrawler"
+            ]
+        },
+        "vulnerability_scanning": {
+            "generic_scanners": [
+                "nuclei",
+                "nikto",
+                "zaproxy",
+                "cvemap",
+                "vulnx"
+            ],
+            "cms_scanners": [
+                "wpscan",
+                "joomscan",
+                "cmseek"
+            ],
+            "fuzzing": [
+                "ffuf",
+                "feroxbuster",
+                "dirsearch",
+                "wfuzz",
+                "kiterunner",
+                "wapiti3",
+                "fuzzdb"
+            ],
+            "specific_vulnerabilities": [
+                "sqlmap",
+                "nosqli",
+                "dalfox",
+                "xsstrike",
+                "crlfuzz",
+                "jwt_tool",
+                "tplmap",
+                "headi",
+                "corsy",
+                "graphqlmap",
+                "gqlspection",
+                "toxicache"
+            ],
+            "evasion_and_waf": [
+                "wafw00f",
+                "whatwaf",
+                "bypass-firewalls-by-DNS-history",
+                "nowaf"
+            ]
+        },
+        "exploitation": {
+            "web": [
+                "commix",
+                "ghauri",
+                "sqlmap",
+                "lfi-fuzz"
+            ],
+            "network_pivoting": [
+                "ligolo-ng",
+                "chisel",
+                "socat"
+            ],
+            "ad_smb": [
+                "responder",
+                "impacket-scripts",
+                "netexec",
+                "smbclient",
+                "enum4linux"
+            ],
+            "bruteforce": [
+                "hydra",
+                "medusa",
+                "hashcat",
+                "john"
+            ],
+            "priv_esc": [
+                "linpeas",
+                "pspy64"
+            ],
+            "advanced_injection": [
+                "dalfox",
+                "xsstrike",
+                "kxss",
+                "xssmap",
+                "oralyzer",
+                "tplmap",
+                "sstimap",
+                "smuggler"
+            ]
+        },
+        "javascript_analysis": {
+            "extraction": [
+                "linkfinder",
+                "js-scan",
+                "jsfinder",
+                "linksdumper",
+                "subjs",
+                "urlfinder"
+            ],
+            "analysis": [
+                "jsluice",
+                "jsleak",
+                "js-snooper",
+                "jsniper",
+                "csprecon"
+            ]
+        },
+        "cloud_secrets": {
+            "secrets_scanning": [
+                "trufflehog",
+                "gitleaks",
+                "git-secrets",
+                "trivy"
+            ],
+            "cloud_enum": [
+                "cloud_enum",
+                "pacu",
+                "scoutsuite",
+                "s3scanner"
+            ],
+            "code_analysis": [
+                "semgrep",
+                "bandit",
+                "retire",
+                "eslint"
+            ],
+            "cloud_exploitation": [
+                "awsbypasser",
+                "stratus-red-team",
+                "cloudsploit",
+                "pacu"
+            ]
+        },
+        "utilities": {
+            "data_manipulation": [
+                "jq",
+                "ripgrep",
+                "grep",
+                "gf",
+                "meg",
+                "qsreplace",
+                "dsieve"
+            ],
+            "networking": [
+                "interactsh-client",
+                "testssl.sh",
+                "dnstake",
+                "vhostfinder",
+                "hakip2host",
+                "hakoriginfinder",
+                "cut-cdn"
+            ],
+            "custom_scripting": [
+                "python3",
+                "bash",
+                "curl",
+                "wget",
+                "interactsh-client"
+            ]
+        }
+    },
+    "parallelizable_tools": [
+        "dnsx",
+        "masscan",
+        "csprecon",
+        "katana",
+        "nmap",
+        "x8",
+        "ripgrep",
+        "grep",
+        "gospider",
+        "subfinder",
+        "param-miner",
+        "waybackurls",
+        "feroxbuster",
+        "ffuf",
+        "gf",
+        "gau",
+        "amass",
+        "wafw00f",
+        "dirsearch",
+        "findomain",
+        "naabu",
+        "assetfinder",
+        "jq"
+    ],
+    "tool_alternatives": {
+        "nmap": "[BLOCKED BY FW / SLOW] Nmap failed. SUGGESTION: 1) Try `naabu -top-ports 1000 -c 50`. 2) If still blocked, use `masscan` or perform highly targeted TCP SYN via custom Scapy script.",
+        "sqlmap": "[WAF / TIME-BLIND] SQLmap failed. SUGGESTION: 1) Switch to `ghauri` for advanced evasion. 2) Fallback to `curl` with manual time-delay payloads (e.g., `pg_sleep(10)`). 3) Test for NoSQLi instead (`nosqli`).",
+        "subfinder": "[API LIMITS] Subfinder exhausted. SUGGESTION: 1) Correlate with `amass enum -passive`. 2) Use `shosubgo` or `github-subdomains` for OSINT discovery.",
+        "ffuf": "[WAF BAN / 403s] Ffuf getting 403s. SUGGESTION: 1) Add header `-H 'X-Forwarded-For: 127.0.0.1'`. 2) Try path normalization evasion (`/%2e/`). 3) Use `feroxbuster --random-agent`.",
+        "httpx": "[TIMEOUTS] Httpx hanging. SUGGESTION: Run with `-rl 50 -t 50 -retries 2` to throttle requests and prevent WAF blacklisting.",
+        "nuclei": "[NO CVE FOUND] Nuclei finished with no results. SUGGESTION: STOP relying on templates. Transition immediately to Phase 5: Manual Business Logic testing. Open Python and write a script to test IDORs on API endpoints.",
+        "waybackurls": "Try gau or waymore",
+        "katana": "[JS RENDER FAILED] Katana cannot see links. SUGGESTION: The target is a modern SPA (React/Vue). Katana won't work well alone. Use a Puppeteer script or manually inspect the main `.js` bundle using `linkfinder` or `jsluice`.",
+        "arjun": "Try x8 or param-miner for parameter discovery",
+        "jwt_tool": "Use Burp Suite's JWT extension if intercepting",
+        "wpscan": "[API REQUIRED] WPScan limited. SUGGESTION: Use `nuclei -t http/wordpress/` or manually inspect `/wp-content/plugins/` directory.",
+        "wfuzz": "Migrate to ffuf or feroxbuster for better performance in Go/Rust",
+        "dirbuster": "Deprecated. Use ffuf or feroxbuster",
+        "trufflehog": "[FALSE POSITIVES] Trufflehog overwhelming. SUGGESTION: Use `gitleaks detect` or manually run `ripgrep` for specific patterns (e.g., `rg -i 'api_key|secret|password'` in `.js` files).",
+        "dalfox": "[BLIND XSS] Dalfox failed. SUGGESTION: Use `interactsh-client` and manually inject payload `<script>fetch('http://[id].interact.sh')</script>` into every parameter and header via `var_mapper.py`.",
+        "browser_action": "[DOM INTERACTION] Browser automation failed. SUGGESTION: Don't give up. The application might require a specific sequence of clicks or login state. Write a targeted Python Playwright/Puppeteer script to interact with the DOM slowly."
+    }
+}

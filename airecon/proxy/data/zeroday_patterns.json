@@ -1,0 +1,43 @@
+{
+  "custom_api_behavior": {
+    "description": "Custom API with potential zero-day",
+    "indicators": [
+      "custom_api",
+      "unusual_endpoint",
+      "proprietary"
+    ],
+    "test_vectors": [
+      "Fuzz with unusual characters",
+      "Test JSON parsing edge cases",
+      "Test with null/undefined values"
+    ]
+  },
+  "complex_interaction": {
+    "description": "Complex multi-step interaction",
+    "indicators": [
+      "multi_step",
+      "stateful",
+      "workflow"
+    ],
+    "test_vectors": [
+      "Skip steps",
+      "Repeat steps",
+      "Change order",
+      "Test race conditions"
+    ]
+  },
+  "file_processing": {
+    "description": "File processing zero-day potential",
+    "indicators": [
+      "file_upload",
+      "image_process",
+      "document_parse"
+    ],
+    "test_vectors": [
+      "Malformed files",
+      "Polyglot files",
+      "Large files",
+      "Recursive compression"
+    ]
+  }
+}

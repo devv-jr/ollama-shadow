@@ -1,0 +1,132 @@
+[
+  {
+    "name": "SSRF to Cloud Metadata",
+    "steps": [
+      "SSRF vulnerability",
+      "Access cloud metadata",
+      "Steal credentials"
+    ],
+    "required_findings": [
+      "SSRF",
+      "Cloud metadata endpoint"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "SQLi to OS Command",
+    "steps": [
+      "SQL injection",
+      "Write webshell",
+      "RCE"
+    ],
+    "required_findings": [
+      "SQL injection",
+      "MySQL/MSSQL/PostgreSQL"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "XSS to Cookie Steal",
+    "steps": [
+      "XSS vulnerability",
+      "Steal session cookie",
+      "Session hijacking"
+    ],
+    "required_findings": [
+      "XSS",
+      "Session cookies"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "IDOR to Account Takeover",
+    "steps": [
+      "IDOR vulnerability",
+      "Modify user ID",
+      "Access other accounts"
+    ],
+    "required_findings": [
+      "IDOR",
+      "User endpoint"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "File Upload to RCE",
+    "steps": [
+      "Unrestricted file upload",
+      "Upload webshell",
+      "Execute shell"
+    ],
+    "required_findings": [
+      "File upload",
+      "Web shell"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "LFI to RCE",
+    "steps": [
+      "LFI vulnerability",
+      "Log poisoning",
+      "RCE"
+    ],
+    "required_findings": [
+      "LFI",
+      "Log file access"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "JWT Algorithm Confusion",
+    "steps": [
+      "JWT token",
+      "Algorithm confusion",
+      "Forge token"
+    ],
+    "required_findings": [
+      "JWT",
+      "Weak secret"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "OAuth Redirect Bypass",
+    "steps": [
+      "OAuth implementation",
+      "Redirect URI bypass",
+      "Steal authorization code"
+    ],
+    "required_findings": [
+      "OAuth",
+      "Redirect URI"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Docker Breakout",
+    "steps": [
+      "Container access",
+      "Container escape",
+      "Host compromise"
+    ],
+    "required_findings": [
+      "Docker",
+      "Container"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Kubernetes Pod Escape",
+    "steps": [
+      "K8s pod access",
+      "Pod escape",
+      "Cluster compromise"
+    ],
+    "required_findings": [
+      "Kubernetes",
+      "Pod"
+    ],
+    "severity": "CRITICAL"
+  }
+]

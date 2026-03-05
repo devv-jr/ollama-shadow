@@ -1,0 +1,725 @@
+[
+    {
+        "type": "function",
+        "function": {
+            "name": "advanced_fuzz",
+            "description": "Run advanced heuristics and intelligent fuzzing for Zero-Days. Uses fuzzer.py internally.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Full URL including endpoint (e.g. https://target.com/api/v1/update)"
+                    },
+                    "parameters": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of parameters to fuzz (e.g. ['id', 'user_id'])"
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method (GET, POST)"
+                    },
+                    "vuln_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Types of vulnerabilities to fuzz (e.g. ['sql_injection', 'xss', 'idor', 'ssti', 'mass_assignment'])"
+                    }
+                },
+                "required": [
+                    "target",
+                    "parameters"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_parallel_agents",
+            "description": "Launch multiple parallel AIRecon scout agents on multiple targets simultaneously, bounded by a concurrency semaphore.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "targets": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of targets/domains to scan in parallel."
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "The exact prompt/directive for the parallel agents to execute on each target."
+                    }
+                },
+                "required": [
+                    "targets",
+                    "prompt"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_action",
+            "description": "Control a headless browser to navigate, interact, or extract data from websites.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "launch",
+                            "goto",
+                            "click",
+                            "type",
+                            "scroll_down",
+                            "scroll_up",
+                            "back",
+                            "forward",
+                            "new_tab",
+                            "switch_tab",
+                            "close_tab",
+                            "wait",
+                            "execute_js",
+                            "double_click",
+                            "hover",
+                            "press_key",
+                            "save_pdf",
+                            "get_console_logs",
+                            "get_network_logs",
+                            "view_source",
+                            "close",
+                            "list_tabs"
+                        ],
+                        "description": "The action to perform. Use get_network_logs to capture XHR/fetch API requests and responses like DevTools Network tab."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL for launch/goto/new_tab."
+                    },
+                    "coordinate": {
+                        "type": "string",
+                        "description": "x,y coordinates for click/hover."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text to type."
+                    },
+                    "tab_id": {
+                        "type": "string",
+                        "description": "Tab ID to target."
+                    },
+                    "js_code": {
+                        "type": "string",
+                        "description": "JavaScript code to execute."
+                    },
+                    "duration": {
+                        "type": "number",
+                        "description": "Duration to wait in seconds."
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Key to press."
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to save PDF."
+                    },
+                    "clear": {
+                        "type": "boolean",
+                        "description": "Clear logs after fetching."
+                    }
+                },
+                "required": [
+                    "action"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Create a new file in the workspace. Overwrites if exists.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path (relative to workspace/ or absolute within workspace/)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to write to the file."
+                    }
+                },
+                "required": [
+                    "path",
+                    "content"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read content of a file from the workspace. For large files (nmap output, katana URLs, etc.), use offset and limit to read in pages and avoid overloading your context window.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path to read (relative to workspace or absolute within workspace)."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Line number to start reading from (0-indexed). Default: 0 (start of file)."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return. Default: 500. Use smaller values for very large files."
+                    }
+                },
+                "required": [
+                    "path"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List files and directories inside the workspace. Use this instead of `execute ls` to efficiently see what files exist for the current target without wasting shell execution. Returns file sizes and line counts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path to list (relative to workspace, e.g. 'output/', 'tools/', or leave empty for the target root). Default: target root."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web using DuckDuckGo. Use this to research payloads, CVEs, exploit techniques, WAF bypasses, tool flags, or any information needed during security testing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum results to return (default: 10, max: 50). Use higher values for thorough dorking."
+                    }
+                },
+                "required": [
+                    "query"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_vulnerability_report",
+            "description": "Create a vulnerability report for a discovered security issue.\n\nIMPORTANT: This tool checks for duplicate reports by title — a report with the same title as an existing one will be rejected. Do NOT attempt to re-submit a rejected report; move on to testing other areas.\n\nMINIMUM REQUIRED FIELDS: title, description, target, poc_description, poc_script_code.\n\nCTF MODE: When reporting a CTF flag, include the flag field AND provide comprehensive analysis — description (executive summary), technical_analysis (root cause), poc_description (step-by-step with HTTP evidence), poc_script_code (automated exploit script), impact, and remediation_steps. CTF reports should match professional penetration testing quality.\n\nFULL REPORT MODE: For bug bounty and penetration testing, provide all fields including CVSS components.\n\nDEDUPLICATION: If this tool returns with success=false and mentions a duplicate or existing title, DO NOT attempt to re-submit. Move on to testing other areas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Clear, specific title (e.g., \"SQL Injection in /api/users Login Parameter\"). But not too long. Don't mention CVE number in the title."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Comprehensive description of the vulnerability and how it was discovered"
+                    },
+                    "impact": {
+                        "type": "string",
+                        "description": "Impact assessment: what attacker can do, business risk, data at risk"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Affected target: URL, domain, or Git repository"
+                    },
+                    "technical_analysis": {
+                        "type": "string",
+                        "description": "Technical explanation of the vulnerability mechanism and root cause"
+                    },
+                    "poc_description": {
+                        "type": "string",
+                        "description": "Step-by-step instructions to reproduce the vulnerability"
+                    },
+                    "poc_script_code": {
+                        "type": "string",
+                        "description": "Actual proof of concept code, exploit, payload, or script that demonstrates the vulnerability. Python code."
+                    },
+                    "remediation_steps": {
+                        "type": "string",
+                        "description": "Specific, actionable steps to fix the vulnerability"
+                    },
+                    "attack_vector": {
+                        "type": "string",
+                        "enum": [
+                            "N",
+                            "A",
+                            "L",
+                            "P"
+                        ],
+                        "description": "CVSS Attack Vector:\nN=Network, A=Adjacent, L=Local, P=Physical"
+                    },
+                    "attack_complexity": {
+                        "type": "string",
+                        "enum": [
+                            "L",
+                            "H"
+                        ],
+                        "description": "CVSS Attack Complexity:\nL=Low, H=High"
+                    },
+                    "privileges_required": {
+                        "type": "string",
+                        "enum": [
+                            "N",
+                            "L",
+                            "H"
+                        ],
+                        "description": "CVSS Privileges Required:\nN=None, L=Low, H=High"
+                    },
+                    "user_interaction": {
+                        "type": "string",
+                        "enum": [
+                            "N",
+                            "R"
+                        ],
+                        "description": "CVSS User Interaction:\nN=None, R=Required"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": [
+                            "U",
+                            "C"
+                        ],
+                        "description": "CVSS Scope:\nU=Unchanged, C=Changed"
+                    },
+                    "confidentiality": {
+                        "type": "string",
+                        "enum": [
+                            "N",
+                            "L",
+                            "H"
+                        ],
+                        "description": "CVSS Confidentiality Impact:\nN=None, L=Low, H=High"
+                    },
+                    "integrity": {
+                        "type": "string",
+                        "enum": [
+                            "N",
+                            "L",
+                            "H"
+                        ],
+                        "description": "CVSS Integrity Impact:\nN=None, L=Low, H=High"
+                    },
+                    "availability": {
+                        "type": "string",
+                        "enum": [
+                            "N",
+                            "L",
+                            "H"
+                        ],
+                        "description": "CVSS Availability Impact:\nN=None, L=Low, H=High"
+                    },
+                    "endpoint": {
+                        "type": "string",
+                        "description": "API endpoint(s) or URL path(s) \u2014 for web vulns, or repo path \u2014 for code vulns"
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method(s) (GET, POST, etc.) \u2014 for web vulnerabilities."
+                    },
+                    "cve": {
+                        "type": "string",
+                        "description": "CVE identifier (e.g., \"CVE-2024-1234\"). Verify it's valid via web_search before using."
+                    },
+                    "suggested_fix": {
+                        "type": "string",
+                        "description": "Optional: A concrete code snippet or configuration change showing how to fix the vulnerability."
+                    },
+                    "flag": {
+                        "type": "string",
+                        "description": "CTF flag value (e.g., FLAG{example}). Use this field when reporting a CTF challenge flag."
+                    }
+                },
+                "required": [
+                    "title",
+                    "description",
+                    "target",
+                    "poc_description",
+                    "poc_script_code"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "quick_fuzz",
+            "description": "Quickly fuzz a URL with common vulnerability payloads (SQLi, XSS, Path Traversal, SSTI). Faster than advanced_fuzz — use when you need a rapid scan without specifying parameters manually. Automatically discovers and targets high-priority parameters.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Full URL to fuzz (e.g. https://target.com/search?q=test)"
+                    },
+                    "params": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional list of parameters to fuzz. If omitted, defaults to common params: q, search, id, page."
+                    }
+                },
+                "required": [
+                    "target"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "deep_fuzz",
+            "description": "Run a full deep interactive fuzzing session with real-time chain discovery. More thorough than advanced_fuzz — discovers exploit chains (e.g. SQLi+RCE, XSS+Cookie Steal). Use after quick_fuzz or advanced_fuzz already found hints of vulnerabilities.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Full URL to fuzz (e.g. https://target.com/api/v1/search)"
+                    },
+                    "params": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional list of parameters to fuzz. If omitted, auto-discovers high-priority targets."
+                    },
+                    "vuln_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Optional vulnerability types to test. If omitted, tests all available types."
+                    }
+                },
+                "required": [
+                    "target"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_wordlist",
+            "description": "Generate a targeted fuzzing wordlist from the internal payload database and save it to the workspace. Output includes actual exploit payloads (SQLi, XSS, SSTI, SSRF, path traversal, etc.) followed by parameter name mutations. Use the saved file path with ffuf or feroxbuster.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output_file": {
+                        "type": "string",
+                        "description": "Filename to save the wordlist (e.g. 'sqli_payloads.txt'). Saved inside output/ folder."
+                    },
+                    "vuln_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Filter payload categories to include. Available: sql_injection, xss, command_injection, path_traversal, ssti, xxe, ssrf, idor, mass_assignment, parameter_pollution, jwt, graphql, race_condition. Omit to include ALL categories."
+                    },
+                    "max_combinations": {
+                        "type": "integer",
+                        "description": "Cap on parameter name mutation variants appended after payloads (default: 300, max: 1000)."
+                    }
+                },
+                "required": [
+                    "output_file"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caido_list_requests",
+            "description": "Query Caido HTTP proxy history using HTTPQL filter. Returns request ID, method, host, path, and response status. Use IDs for caido_send_request. Example filters: 'host.eq:\"target.com\"', 'method.eq:\"POST\"', 'resp.status.eq:200'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "description": "HTTPQL filter expression (e.g. 'host.eq:\"target.com\" and method.eq:\"POST\"')"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 50, max 200)"
+                    }
+                },
+                "required": [
+                    "filter"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caido_send_request",
+            "description": "Replay or modify an HTTP request via Caido. Provide either a request_id from caido_list_requests (to replay an existing request) or a raw_http string (to send a custom request). Use for IDOR testing, auth bypass, header injection, and manual verification.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "request_id": {
+                        "type": "string",
+                        "description": "Caido request ID to replay (from caido_list_requests). Optional if raw_http provided."
+                    },
+                    "raw_http": {
+                        "type": "string",
+                        "description": "Full plain-text raw HTTP request to send (e.g. 'GET /api/user?id=2 HTTP/1.1\\r\\nHost: target.com\\r\\n\\r\\n'). Do NOT base64-encode — executor handles encoding."
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Target host (e.g. 'target.com')"
+                    },
+                    "port": {
+                        "type": "integer",
+                        "description": "Target port (default: 443 for TLS, 80 for plain)"
+                    },
+                    "is_tls": {
+                        "type": "boolean",
+                        "description": "Use TLS/HTTPS (default: true)"
+                    }
+                },
+                "required": [
+                    "host"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caido_automate",
+            "description": "Start a Caido Automate fuzzing session (like Burp Intruder). Mark injection points with §FUZZ§ in the raw HTTP request — executor calculates byte offsets automatically. Use for parameter fuzzing, credential stuffing, and payload injection.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "raw_http": {
+                        "type": "string",
+                        "description": "Full raw HTTP request with §FUZZ§ markers at injection points (e.g. 'POST /login HTTP/1.1\\r\\nHost: target.com\\r\\n\\r\\n{\"user\":\"admin\",\"pass\":\"§FUZZ§\"}')"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Target host (e.g. 'target.com')"
+                    },
+                    "port": {
+                        "type": "integer",
+                        "description": "Target port (default: 443)"
+                    },
+                    "is_tls": {
+                        "type": "boolean",
+                        "description": "Use TLS/HTTPS (default: true)"
+                    },
+                    "payloads": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "List of payloads to inject at §FUZZ§ positions (e.g. [\"' OR 1=1--\", \"admin\", \"<script>alert(1)</script>\"])"
+                    },
+                    "workers": {
+                        "type": "integer",
+                        "description": "Concurrent workers for fuzzing (default: 10)"
+                    }
+                },
+                "required": [
+                    "raw_http",
+                    "host",
+                    "payloads"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caido_get_findings",
+            "description": "Retrieve all findings/annotations stored in Caido. Returns title, description, reporter, and associated request details. Use after manual testing to collect annotated vulnerabilities.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max findings to return (default: 50)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "caido_set_scope",
+            "description": "Set Caido proxy scope to focus capture and testing on specific hosts. Allowlisted hosts are captured; denylisted hosts are excluded.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "allowlist": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Hosts to include in scope (e.g. ['target.com', '*.target.com', 'api.target.com'])"
+                    },
+                    "denylist": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Hosts to exclude from scope (optional)"
+                    }
+                },
+                "required": [
+                    "allowlist"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spawn_agent",
+            "description": "Spawn a specialist subagent to deeply investigate a specific finding or endpoint. The subagent runs independently with a focused task (max 200 iterations) and returns discovered vulnerabilities merged into the parent session. Use when you find a hint that warrants deeper specialist investigation (e.g. SQLi error response → spawn sqli specialist).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "Specific investigation task for the subagent (e.g. 'Test /api/login for SQL injection, parameter: username')"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Target URL or domain for the subagent (e.g. 'https://target.com/api/login')"
+                    },
+                    "specialist": {
+                        "type": "string",
+                        "enum": [
+                            "sqli",
+                            "xss",
+                            "ssrf",
+                            "lfi",
+                            "recon",
+                            "exploit",
+                            "analyzer",
+                            "reporter"
+                        ],
+                        "description": "Type of specialist: sqli (SQL injection), xss (Cross-site scripting), ssrf (Server-side request forgery), lfi (Local file inclusion/path traversal), recon (Reconnaissance only), exploit (General exploitation), analyzer (Code/config analysis), reporter (Report generation)"
+                    }
+                },
+                "required": [
+                    "task",
+                    "target",
+                    "specialist"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schemathesis_fuzz",
+            "description": "Run API schema-aware fuzzing using Schemathesis against an OpenAPI/Swagger spec. Automatically generates and sends test cases for every documented endpoint, checking for crashes, 500 errors, validation failures, auth bypasses, and injection vulnerabilities. More thorough than manual fuzzing for REST/GraphQL APIs with a schema.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "schema_url": {
+                        "type": "string",
+                        "description": "URL or file path to the OpenAPI/Swagger spec (e.g. 'https://target.com/openapi.json', 'https://target.com/swagger.yaml', '/workspace/target/output/api-spec.json'). Common paths to try: /openapi.json, /swagger.json, /api/docs, /api-docs, /v1/openapi.json."
+                    },
+                    "base_url": {
+                        "type": "string",
+                        "description": "Base URL of the API to test against (e.g. 'https://target.com/api/v1'). If omitted, uses the server URL from the schema."
+                    },
+                    "auth_header": {
+                        "type": "string",
+                        "description": "Authorization header value to include in every request (e.g. 'Bearer eyJhbGc...' or 'Basic dXNlcjpwYXNz'). Use session auth_tokens if available."
+                    },
+                    "checks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Schemathesis checks to run. Available: not_a_server_error, status_code_conformance, content_type_conformance, response_schema_conformance, negative_data_rejection. Omit for all checks."
+                    },
+                    "max_examples": {
+                        "type": "integer",
+                        "description": "Max test cases per endpoint (default: 30). Increase for deeper coverage, decrease for speed."
+                    }
+                },
+                "required": [
+                    "schema_url"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "code_analysis",
+            "description": "Run static code analysis (Semgrep) on a cloned repo or downloaded source code inside the Docker sandbox. Detects security vulnerabilities, CWE patterns, and OWASP Top 10 issues. Use after cloning a repository or downloading source files to find code-level vulnerabilities like SQL injection, XSS, command injection, hardcoded secrets, insecure crypto, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_path": {
+                        "type": "string",
+                        "description": "Path to scan inside the workspace (e.g. 'output/repo-clone', '.' for current target root). Relative to the target workspace directory."
+                    },
+                    "rules": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Semgrep rule sets to use (e.g. ['p/security-audit', 'p/owasp-top-ten']). If omitted, uses all default security rules."
+                    },
+                    "languages": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Filter to specific languages (e.g. ['python', 'javascript', 'java']). If omitted, scans all detected languages."
+                    }
+                },
+                "required": [
+                    "target_path"
+                ]
+            }
+        }
+    }
+]
