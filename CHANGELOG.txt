@@ -1,0 +1,20 @@
+# Changelog
+
+## [v0.1.5-beta] - 2026-03-05
+
+### Fixed
+- fix(core): unpack tuple return value from auto_load_skills_for_message to resolve unhashable list crash
+- fix(core): resolve correlation logger, fuzzer graceful degradation, and browser timeout bugs
+- fix(docker): fix race condition in docker force_stop and ollama model detection
+- fix(tui): initialize live output and remove unused reload override
+- fix(test): patch browser unpacking bug in unit tests
+
+### Added
+- test: implement comprehensive unit test suite covering proxy, agent, and TUI components
+
+### Changed
+- chore: remove .vscode from version control tracking
+- chore: add __pycache__ and workspace/ to .gitignore
+- docs: update README badge version formats
+
+---
