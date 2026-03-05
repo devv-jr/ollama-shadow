@@ -179,7 +179,8 @@ class ToolMessage(Vertical):
         self.status = "running"
         self.duration = 0.0
         self.output_file = ""
-        self._live_output_buffer = ""  # initialized here, not lazily in append_output
+        self._live_output_buffer = ""
+        self._live_output: RichLog | None = None
         self.add_class("running")
 
     def compose(self):
@@ -228,7 +229,7 @@ class ToolMessage(Vertical):
     def append_output(self, text: str) -> None:
         self._live_output_buffer += text
 
-        if hasattr(self, "_live_output"):
+        if self._live_output:
             # Split by either \n or \r to flush progress bars instantly
             while True:
                 match = re.search(r'[\n\r]', self._live_output_buffer)
@@ -259,7 +260,7 @@ class ToolMessage(Vertical):
             summary = Text()
             summary.append("✓ ", style="bold #00d4aa")
             summary.append(self.tool_name, style="bold #8b949e")
-            summary.append(f"  {self.duration:.1f}s", style="#484f58")
+            summary.append(f"  {duration:.1f}s", style="#484f58")
             if self.output_file:
                 display_path = self.output_file
                 if len(display_path) > 45:

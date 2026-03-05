@@ -19,12 +19,6 @@ class WorkspaceTree(DirectoryTree):
         filtered = [p for p in paths if not p.name.startswith(".")]
         return filtered[:500]
 
-    async def _reload(self, node) -> None:
-        try:
-            await super()._reload(node)
-        except Exception:
-            pass
-
 
 class WorkspacePanel(Vertical):
     """Panel showing workspace tree and auto-updating vulnerability panel."""
