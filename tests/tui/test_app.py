@@ -1,9 +1,7 @@
 import pytest
-from textual.widgets import Input, Static
 from unittest.mock import patch, MagicMock
 from airecon.tui.app import AIReconApp
 from airecon.tui.widgets.input import CommandInput
-from airecon.tui.widgets.chat import ChatPanel
 
 
 @pytest.mark.asyncio

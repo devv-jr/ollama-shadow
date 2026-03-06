@@ -1,6 +1,5 @@
-import pytest
 import json
-from airecon.proxy.agent.output_parser import parse_tool_output, ParsedOutput, detect_tool
+from airecon.proxy.agent.output_parser import parse_tool_output, detect_tool
 
 
 def test_detect_tool():

@@ -3,7 +3,6 @@ from textual.app import App, ComposeResult
 from airecon.tui.widgets.chat import ChatPanel
 from airecon.tui.widgets.workspace import WorkspacePanel
 from airecon.tui.widgets.status import StatusBar
-from textual.widgets import RichLog
 
 # A dummy Textual app to host isolated widgets
 

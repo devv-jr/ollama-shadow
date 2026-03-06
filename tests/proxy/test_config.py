@@ -1,7 +1,4 @@
-import pytest
-import os
 import json
-from pathlib import Path
 from airecon.proxy.config import Config, DEFAULT_CONFIG
 
 

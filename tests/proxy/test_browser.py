@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from airecon.proxy.browser import BrowserInstance, _generate_totp
 
 
@@ -77,7 +77,7 @@ async def test_tab_management(browser, mocker):
     assert browser.current_page_id == "tab_2"
 
     # Switch tab back
-    state_switch = await browser._switch_tab("tab_1")
+    await browser._switch_tab("tab_1")
     assert browser.current_page_id == "tab_1"
 
     # Close tab 2

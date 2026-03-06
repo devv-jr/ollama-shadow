@@ -1,8 +1,6 @@
 import pytest
-import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 from airecon.proxy.agent.loop import AgentLoop
-from airecon.proxy.agent.models import AgentState
 
 
 @pytest.fixture

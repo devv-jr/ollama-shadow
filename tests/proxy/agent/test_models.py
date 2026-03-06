@@ -1,5 +1,4 @@
-import pytest
-from airecon.proxy.agent.models import AgentState, ToolExecution
+from airecon.proxy.agent.models import AgentState
 
 
 def test_agent_state_initializes_with_defaults():

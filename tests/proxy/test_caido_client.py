@@ -1,5 +1,4 @@
 import pytest
-import httpx
 from unittest.mock import AsyncMock
 from airecon.proxy.caido_client import CaidoClient
 

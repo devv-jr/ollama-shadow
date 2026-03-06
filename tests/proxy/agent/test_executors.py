@@ -1,8 +1,6 @@
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from airecon.proxy.agent.executors import _ExecutorMixin
-from airecon.proxy.agent.models import AgentState, ToolExecution
 
 
 class DummyState:

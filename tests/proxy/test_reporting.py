@@ -1,6 +1,4 @@
-import pytest
 import os
-import re
 from airecon.proxy.reporting import create_vulnerability_report, calculate_cvss_and_severity
 
 

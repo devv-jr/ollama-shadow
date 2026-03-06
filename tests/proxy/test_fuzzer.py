@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock
-import httpx
 from airecon.proxy.fuzzer import Fuzzer, ExpertHeuristics, MutationEngine
 
 
@@ -11,7 +10,6 @@ def base_fuzzer():
 
 @pytest.mark.asyncio
 async def test_fuzzer_baseline_and_run(base_fuzzer, mocker):
-    mock_post = AsyncMock()
     mock_get = AsyncMock()
 
     # baseline get and fuzz get both mocked
