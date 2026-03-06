@@ -13,7 +13,7 @@
   <a href="https://github.com/pikpikcu/airecon/blob/master/LICENSE">
    <img src="https://img.shields.io/badge/LICENSE-red.svg">
   </a>
-  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg">
+  <img src="https://img.shields.io/badge/python-3.12%2B-blue.svg">
   <img src="https://img.shields.io/badge/LLM-Ollama%20(local)-orange.svg">
 </p>
 
@@ -401,7 +401,7 @@ Deep usage guides for: `nmap`, `nuclei`, `sqlmap`, `dalfox`, `semgrep`, `caido`,
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
-| Python | 3.10+ | System Python recommended |
+| Python | 3.12+ | System Python recommended |
 | Docker | 20.10+ | Must be running before first launch |
 | Ollama | Latest | Running locally or remote endpoint |
 | Poetry | 1.4+ | Auto-installed by `install.sh` if missing |
