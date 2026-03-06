@@ -7,6 +7,7 @@ import os
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -48,7 +49,16 @@ class _ExecutorMixin:
 
         start_time = time.time()
         try:
-            result = await asyncio.to_thread(browser_action, **arguments)
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(browser_action, **arguments),
+                    timeout=120.0,
+                )
+            except asyncio.TimeoutError:
+                return False, 120.0, {
+                    "success": False,
+                    "error": "Browser action timed out after 120s. The page may be hanging.",
+                }, None
 
             # Auto-inject session cookies immediately after launch
             if arguments.get("action") == "launch" and hasattr(self, "_session"):
@@ -287,6 +297,15 @@ class _ExecutorMixin:
                     path_arg = os.path.join(
                         self.state.active_target,
                         path_arg)  # type: ignore[attr-defined]
+
+            # Path traversal protection: resolve and verify path is within workspace
+            workspace_root = get_workspace_root()
+            resolved = (workspace_root / path_arg).resolve()
+            if not str(resolved).startswith(str(workspace_root.resolve())):
+                return False, 0.0, {
+                    "success": False,
+                    "error": f"Path traversal attempt blocked: '{path_arg}' resolves outside workspace.",
+                }, None
 
             arguments["path"] = path_arg
 

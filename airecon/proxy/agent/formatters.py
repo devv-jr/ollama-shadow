@@ -115,11 +115,15 @@ class _FormatterMixin:
             if not stdout.strip():
                 return (
                     "Command executed successfully with NO OUTPUT.\n"
-                    "This means:\n"
-                    "- The tool found 0 results (not an error)\n"
+                    "WARNING: Empty output does NOT necessarily mean 0 results.\n"
+                    "Possible causes:\n"
+                    "- The tool found 0 results\n"
                     "- Output was written directly to a file (check: ls output/)\n"
-                    "- Or the tool ran silently\n"
-                    "DO NOT invent results. If a file was written, read it with: cat output/<file>"
+                    "- A permission error occurred silently\n"
+                    "- The tool crashed without printing an error\n"
+                    "ACTION: Verify the tool ran correctly before concluding no results. "
+                    "If a file was written, read it with: cat output/<file>. "
+                    "DO NOT invent results."
                 )
 
             # Try structured parsing first

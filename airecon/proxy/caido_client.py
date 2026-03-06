@@ -58,6 +58,9 @@ class CaidoClient:
             async with httpx.AsyncClient(timeout=30.0) as c:
                 resp = await c.post(cls.BASE_URL, json=payload, headers=headers)
                 return resp.json()
+        except httpx.TimeoutException as e:
+            logger.error(f"Caido GQL request timed out: {e}")
+            return {"errors": [{"message": "Caido request timed out after 30s. Is Caido running?"}]}
         except Exception as e:
             logger.error(f"Caido GQL error: {e}")
             return {"errors": [{"message": str(e)}]}

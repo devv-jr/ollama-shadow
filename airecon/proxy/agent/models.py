@@ -62,6 +62,14 @@ class AgentState:
         if len(self.tool_history) > MAX_TOOL_HISTORY:
             self.tool_history = self.tool_history[-MAX_TOOL_HISTORY:]
 
+        # Truncate oversized result strings in the oldest entries to cap memory usage
+        _MAX_RESULT_CHARS = 50_000
+        for entry in self.tool_history:
+            if entry.result and isinstance(entry.result, dict):
+                for k, v in entry.result.items():
+                    if isinstance(v, str) and len(v) > _MAX_RESULT_CHARS:
+                        entry.result[k] = v[:_MAX_RESULT_CHARS] + " ... [TRUNCATED]"
+
     def is_approaching_limit(self) -> bool:
         return self.iteration >= (self.max_iterations - 3)
 
