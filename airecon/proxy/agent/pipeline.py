@@ -79,7 +79,8 @@ DEFAULT_PHASES: dict[PipelinePhase, PhaseConfig] = {
         ],
         transition_criteria=[
             "urls_collected",             # session.urls is non-empty
-            "technologies_identified",     # session.technologies is non-empty
+            "technologies_identified",    # session.technologies is non-empty
+            "injection_points_found",     # session.injection_points is non-empty
         ],
     ),
     PipelinePhase.EXPLOIT: PhaseConfig(
@@ -254,6 +255,8 @@ class PipelineEngine:
                 met.append("urls_collected")
             if getattr(session, "technologies", {}):
                 met.append("technologies_identified")
+            if getattr(session, "injection_points", []):
+                met.append("injection_points_found")
 
         elif phase == PipelinePhase.EXPLOIT:
             if getattr(session, "vulnerabilities", []):

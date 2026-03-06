@@ -155,6 +155,28 @@ _HTTP_EVIDENCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Gap #1: HTTP evidence patterns that check for actual impact proof
+_HTTP_EVIDENCE_PATTERNS = {
+    "status_change": re.compile(
+        r"(200|201|204|301|302|304|400|401|403|404|500|503)\s*→\s*(200|201|204|301|302|304|400|401|403|404|500|503)",
+        re.IGNORECASE
+    ),
+    "response_content": re.compile(
+        r"(response|returned|got|contain(?:s|ing)|found|showing|displays?|has|includes)\s+.*?"
+        r"(admin|user|password|token|secret|key|cookie|session|data|record|list|table|error|exception|query|select|insert|update|delete|flag|id|username|email|api|credential)",
+        re.IGNORECASE
+    ),
+    "error_indicator": re.compile(
+        r"(error|exception|sql|syntax|warning|failed|denied|forbidden|timeout|connection|refused|unreachable|stack trace|traceback)",
+        re.IGNORECASE
+    ),
+    "data_extraction": re.compile(
+        r"(extracted|captured|dumped|found|leaked|exposed|retrieved|obtained|recovered|decrypted)\s+.*?"
+        r"(password|token|api|key|secret|credential|session|cookie|hash|id|username|email|data)",
+        re.IGNORECASE
+    ),
+}
+
 
 class _ValidatorMixin:
 
@@ -343,6 +365,26 @@ class _ValidatorMixin:
                         "Show the real status code and response data you observed, e.g.: "
                         "'GET /api/data → HTTP 200, response contained {user records}'. "
                         "A 301 redirect alone, or 'endpoint exists', is not sufficient — show what data/access was obtained."
+                    )
+                # Gap #1: Require IMPACT proof alongside HTTP status (not just status code alone)
+                has_status_change = _HTTP_EVIDENCE_PATTERNS["status_change"].search(poc_desc)
+                has_content_proof = _HTTP_EVIDENCE_PATTERNS["response_content"].search(poc_desc)
+                has_error_or_data = (
+                    _HTTP_EVIDENCE_PATTERNS["error_indicator"].search(poc_desc) or
+                    _HTTP_EVIDENCE_PATTERNS["data_extraction"].search(poc_desc)
+                )
+                
+                impact_proven = has_status_change or (has_content_proof or has_error_or_data)
+                
+                if not impact_proven:
+                    return False, (
+                        "REPORT REJECTED: HTTP status shown but exploitation impact not documented. "
+                        "You must describe what the response contained or what changed. Examples: "
+                        "'HTTP 200 containing admin panel buttons', "
+                        "'HTTP 200 with SQL error message', "
+                        "'Status changed from 403 (forbidden) to 200 (allowed)', "
+                        "'Response leaked 50 user records'. "
+                        "Do not submit 'HTTP 200' alone without explaining the impact."
                     )
 
         return True, None

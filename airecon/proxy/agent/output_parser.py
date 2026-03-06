@@ -31,7 +31,7 @@ class ParsedOutput:
 
 
 # Maximum items to include in parsed output for LLM context
-MAX_ITEMS = 25
+MAX_ITEMS = 100
 MAX_RAW_FALLBACK = 3000
 
 

@@ -471,5 +471,40 @@
         "medium",
         "high",
         "critical"
-    ]
+    ],
+    "PARAM_TYPE_MAP": {
+        "IDOR": [
+            "id", "user_id", "uid", "userid", "account_id", "order_id", "item_id",
+            "pid", "cid", "rid", "record_id", "object_id", "doc_id", "file_id",
+            "product_id", "customer_id", "profile_id", "post_id", "comment_id",
+            "category_id", "group_id", "invoice_id", "ticket_id", "message_id"
+        ],
+        "SSRF": [
+            "url", "redirect", "next", "return", "goto", "link", "src", "source",
+            "dest", "destination", "host", "callback", "webhook", "proxy", "target",
+            "endpoint", "api", "feed", "import", "export", "uri", "domain",
+            "return_url", "continue", "hook"
+        ],
+        "PATH_TRAVERSAL": [
+            "file", "path", "filepath", "page", "include", "template", "view",
+            "load", "dir", "folder", "document", "module", "layout", "conf",
+            "filename", "image", "attachment", "upload", "document"
+        ],
+        "SQLi_XSS": [
+            "search", "query", "q", "keyword", "filter", "where", "sort", "order",
+            "name", "username", "email", "title", "content", "message", "comment",
+            "description", "text", "input", "value", "data", "term", "s",
+            "body", "summary", "html", "json", "xml"
+        ],
+        "AUTH": [
+            "username", "password", "email", "token", "session", "auth",
+            "user", "admin", "role", "privilege", "access", "api_key",
+            "api_token", "client_id", "client_secret", "jwt", "assertion"
+        ],
+        "BUSINESS_LOGIC": [
+            "price", "amount", "quantity", "discount", "coupon", "promo",
+            "currency", "points", "balance", "credit", "limit", "offset",
+            "start", "end", "from", "to"
+        ]
+    }
 }

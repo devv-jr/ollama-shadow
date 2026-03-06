@@ -240,12 +240,12 @@ admin.example.com
         assert parsed.total_count == 2
 
     def test_parse_subfinder_large_output(self):
-        """Test that large outputs are handled (25 items shown, rest counted)."""
-        subdomains = [f"sub{i}.example.com" for i in range(100)]
+        """Test that large outputs are handled (100 items shown, rest counted)."""
+        subdomains = [f"sub{i}.example.com" for i in range(150)]
         output = "\n".join(subdomains)
         parsed = _parse_line_list(output)
-        assert parsed.total_count == 100
-        assert len(parsed.items) <= 25  # MAX_ITEMS
+        assert parsed.total_count == 150
+        assert len(parsed.items) <= 100  # MAX_ITEMS
 
 
 class TestParseWhatWeb:
