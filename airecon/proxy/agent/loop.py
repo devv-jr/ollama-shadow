@@ -489,14 +489,13 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         s = self._session
 
                         # OUTPUT CORRELATION ENGINE
-                        if s.open_ports or s.technologies:
+                        if s.open_ports or s.technologies or s.injection_points:
                             from ..correlation import run_correlation  # lazy – avoids circular import
                             correlations = run_correlation(s)
                             if correlations:
                                 corr_lines = [
-                                    "\n[OUTPUT CORRELATION - Attack Chains]"]
-                                # Enhanced to show top 10 instead of 5
-                                for corr in correlations[:10]:
+                                    "\n[OUTPUT CORRELATION - Attack Surface Analysis]"]
+                                for corr in correlations[:15]:
                                     severity = corr.get("severity", "MEDIUM")
                                     vuln_type = corr.get("type", "correlation")
 
@@ -504,16 +503,25 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                         port = corr.get("port", "?")
                                         service = corr.get("service", "?")
                                         vulns = corr.get("vulnerabilities", [])
-                                        vuln_str = vulns[0] if vulns else "Multiple issues"
+                                        tools = corr.get("tools", [])
+                                        vuln_str = "; ".join(vulns[:2]) if vulns else "Multiple issues"
+                                        tool_str = f" | tool: {tools[0]}" if tools else ""
                                         corr_lines.append(
-                                            f"- [{severity}] Port {port} ({service}): {vuln_str}")
+                                            f"- [{severity}] Port {port} ({service}): {vuln_str}{tool_str}")
 
                                     elif vuln_type == "technology":
                                         tech = corr.get("technology", "?")
                                         vulns = corr.get("vulnerabilities", [])
-                                        vuln_str = vulns[0] if vulns else "Multiple issues"
+                                        tools = corr.get("tools", [])
+                                        paths = corr.get("paths", [])
+                                        vuln_str = "; ".join(vulns[:2]) if vulns else "Multiple issues"
+                                        extra = ""
+                                        if tools:
+                                            extra += f" | tool: {tools[0]}"
+                                        if paths:
+                                            extra += f" | paths: {', '.join(paths[:2])}"
                                         corr_lines.append(
-                                            f"- [{severity}] Tech {tech}: {vuln_str}")
+                                            f"- [{severity}] Tech {tech}: {vuln_str}{extra}")
 
                                     elif vuln_type == "technology_cve":
                                         tech = corr.get("technology", "?")
@@ -525,44 +533,64 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                     elif vuln_type == "url_path":
                                         path = corr.get("path", "?")
                                         tech = corr.get("technology", "?")
+                                        vulns = corr.get("vulnerabilities", [])
+                                        tools = corr.get("tools", [])
+                                        vuln_str = f": {vulns[0]}" if vulns else ""
+                                        tool_str = f" | tool: {tools[0]}" if tools else ""
                                         corr_lines.append(
-                                            f"- [{severity}] Discovered Path '{path}' "
-                                            f"mapped to {tech}"
-                                        )
+                                            f"- [{severity}] Path '{path}' → {tech}{vuln_str}{tool_str}")
+
+                                    elif vuln_type == "injection_chain":
+                                        inj_type = corr.get("injection_type", "?")
+                                        chain_name = corr.get("chain_name", "?")
+                                        count = corr.get("param_count", 0)
+                                        params_sample = corr.get("sample_params", [])
+                                        steps = corr.get("steps", [])
+                                        steps_str = " → ".join(steps)
+                                        params_str = ", ".join(params_sample) if params_sample else "discovered params"
+                                        corr_lines.append(
+                                            f"- [{severity}] INJECTION SURFACE ({inj_type}, "
+                                            f"{count} params: {params_str}) → Chain: {chain_name}: {steps_str}")
 
                                     elif vuln_type == "expert_test":
                                         pattern = corr.get("pattern", "?")
                                         desc = corr.get("description", "?")
+                                        actions = corr.get("suggested_actions", [])
+                                        act_lines = [f"  >> {a}" for a in actions[:2]]
+                                        act_str = ("\n" + "\n".join(act_lines)) if act_lines else ""
                                         corr_lines.append(
-                                            f"- [{severity}] EXPERT TEST ({pattern}): {desc}")
+                                            f"- [{severity}] EXPERT TEST ({pattern}): {desc}{act_str}")
 
                                     elif vuln_type == "zeroday_potential":
                                         pattern = corr.get("pattern", "?")
                                         desc = corr.get("description", "?")
+                                        vectors = corr.get("test_vectors", [])
+                                        vec_lines = [f"  >> {v}" for v in vectors[:2]]
+                                        vec_str = ("\n" + "\n".join(vec_lines)) if vec_lines else ""
                                         corr_lines.append(
-                                            f"- [{severity}] ZERO-DAY INDICATOR "
-                                            f"({pattern}): {desc}"
+                                            f"- [{severity}] ZERO-DAY ({pattern}): {desc}{vec_str}"
                                         )
 
                                     elif vuln_type == "business_logic":
                                         pattern = corr.get("pattern", "?")
                                         desc = corr.get("description", "?")
+                                        actions = corr.get("suggested_actions", [])
+                                        act_lines = [f"  >> {a}" for a in actions[:2]]
+                                        act_str = ("\n" + "\n".join(act_lines)) if act_lines else ""
                                         corr_lines.append(
-                                            f"- [{severity}] BUSINESS LOGIC FLAW "
-                                            f"({pattern}): {desc}"
+                                            f"- [{severity}] BUSINESS LOGIC ({pattern}): {desc}{act_str}"
                                         )
 
                                     elif vuln_type == "attack_chain":
                                         name = corr.get("name", "?")
                                         steps = corr.get("steps", [])
-                                        steps_str = " -> ".join(steps)
+                                        steps_str = " → ".join(steps)
                                         corr_lines.append(
                                             f"- [{severity}] ATTACK CHAIN DETECTED "
                                             f"({name}): {steps_str}"
                                         )
 
                                     else:
-                                        # Generic fallback
                                         corr_lines.append(
                                             f"- [{severity}] Unknown Correlation: {corr}")
 

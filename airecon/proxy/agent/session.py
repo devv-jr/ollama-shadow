@@ -28,6 +28,124 @@ SESSIONS_DIR = Path.home() / ".airecon" / "sessions"
 # Similarity threshold for vulnerability deduplication (0-1)
 VULN_SIMILARITY_THRESHOLD = 0.7
 
+# ---------------------------------------------------------------------------
+# Injection point extraction
+# ---------------------------------------------------------------------------
+
+# UUID v4 pattern for path segment detection
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+# Canonical param→attack-type mapping, loaded from fuzzer_data.json.
+# Fallback is empty dict — _guess_injection_type still works via heuristics.
+def _load_param_type_map() -> dict[str, str]:
+    """Build flat {param_lower: TYPE} dict from fuzzer_data.json PARAM_TYPE_MAP."""
+    try:
+        data_file = Path(__file__).parent.parent / "data" / "fuzzer_data.json"
+        data = json.loads(data_file.read_text(encoding="utf-8"))
+        result: dict[str, str] = {}
+        for attack_type, params in data.get("PARAM_TYPE_MAP", {}).items():
+            for param in params:
+                result[param.lower()] = attack_type
+        return result
+    except Exception as e:
+        logger.debug("Could not load PARAM_TYPE_MAP from fuzzer_data.json: %s", e)
+        return {}
+
+
+_PARAM_TYPE_MAP: dict[str, str] = _load_param_type_map()
+
+
+def _guess_injection_type(param: str, value: str) -> str:
+    """Infer the most likely injection type from parameter name and sample value.
+
+    Lookup order:
+    1. Canonical map from fuzzer_data.json PARAM_TYPE_MAP
+    2. camelCase normalisation (userId → user_id)
+    3. Regex suffix patterns (_id suffix → IDOR)
+    4. Numeric/UUID value heuristic
+    """
+    p = param.lower().rstrip("[]")
+    if p in _PARAM_TYPE_MAP:
+        return _PARAM_TYPE_MAP[p]
+    # Normalise camelCase: userId → user_id
+    p_norm = re.sub(r"([a-z])([A-Z])", r"\1_\2", param).lower().rstrip("[]")
+    if p_norm in _PARAM_TYPE_MAP:
+        return _PARAM_TYPE_MAP[p_norm]
+    # Suffix/prefix heuristics
+    if re.search(r"_id$|^id_|id$", p):
+        return "IDOR"
+    # Numeric value in any param → likely IDOR
+    if value and re.match(r"^\d{1,10}$", value):
+        return "IDOR"
+    return "INJECT"
+
+
+def _extract_injection_points(url: str) -> list[dict[str, Any]]:
+    """Extract testable injection point candidates from a URL.
+
+    Detects:
+    - Query string parameters (?id=1&user=admin)
+    - Numeric / UUID path segments (/users/123, /items/uuid)
+
+    Returns a list of dicts with keys: url, parameter, method, value_sample,
+    type_hint.
+    """
+    points: list[dict[str, Any]] = []
+    try:
+        p = urlparse(url)
+        base = f"{p.scheme}://{p.netloc}{p.path}"
+
+        # Query string parameters
+        for param, value in parse_qsl(p.query, keep_blank_values=True):
+            points.append({
+                "url": base,
+                "parameter": param,
+                "method": "GET",
+                "value_sample": value[:30] if value else "",
+                "type_hint": _guess_injection_type(param, value),
+            })
+
+        # Path segments that look like IDs (numeric or UUID)
+        path_parts = [x for x in p.path.strip("/").split("/") if x]
+        for i, seg in enumerate(path_parts):
+            if re.match(r"^\d{1,10}$", seg) or _UUID_RE.match(seg):
+                path_base = (
+                    f"{p.scheme}://{p.netloc}/"
+                    + "/".join(path_parts[: i + 1])
+                )
+                points.append({
+                    "url": path_base,
+                    "parameter": f"path_segment[{i}]",
+                    "method": "GET",
+                    "value_sample": seg,
+                    "type_hint": "IDOR",
+                })
+    except Exception:
+        pass
+    return points
+
+
+def _merge_injection_points(
+    session_points: list[dict[str, Any]],
+    new_points: list[dict[str, Any]],
+) -> None:
+    """Append new injection points to session list, skipping exact duplicates.
+
+    Dedup key: (url, parameter, method) — mutates session_points in-place.
+    """
+    existing = {
+        (p["url"], p["parameter"], p["method"])
+        for p in session_points
+    }
+    for pt in new_points:
+        key = (pt["url"], pt["parameter"], pt["method"])
+        if key not in existing:
+            session_points.append(pt)
+            existing.add(key)
+
 
 def generate_session_id() -> str:
     """Generate a unique session ID: <unix_timestamp>_<8_random_hex>.
@@ -154,6 +272,12 @@ class SessionData:
     created_at: str = ""
     updated_at: str = ""
 
+    # Injection points discovered during ANALYSIS phase.
+    # Each entry: {url, parameter, method, value_sample, type_hint}
+    # Populated automatically from URLs by update_from_parsed_output().
+    # The EXPLOIT phase uses this list to target specific parameters.
+    injection_points: list[dict[str, Any]] = field(default_factory=list)
+
     # Browser auth state (persisted so re-runs skip re-login)
     auth_cookies: list[dict[str, Any]] = field(default_factory=list)
     auth_tokens: dict[str, str] = field(default_factory=dict)
@@ -194,6 +318,7 @@ def load_session(session_id: str) -> SessionData | None:
             scan_count=data.get("scan_count", 0),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
+            injection_points=data.get("injection_points", []),
             auth_cookies=data.get("auth_cookies", []),
             auth_tokens=data.get("auth_tokens", {}),
             auth_type=data.get("auth_type", ""),
@@ -325,11 +450,15 @@ def update_from_parsed_output(
                 session.live_hosts.append(url)
             continue
 
-        # 3. Plain URL → urls collection
+        # 3. Plain URL → urls collection + auto-extract injection points
         if _URL_RE.match(item_stripped):
             url = _normalize_url(item_stripped.split()[0])
             if url not in session.urls:
                 session.urls.append(url)
+            # Extract any testable parameters from the URL
+            new_pts = _extract_injection_points(url)
+            if new_pts:
+                _merge_injection_points(session.injection_points, new_pts)
             continue
 
         # 4. host:port format → open_ports
@@ -410,6 +539,31 @@ def session_to_context(session: SessionData) -> str:
 
     if session.urls:
         parts.append(f"URLs collected: {len(session.urls)}")
+
+    if session.injection_points:
+        count = len(session.injection_points)
+        # Group by type_hint so the LLM sees what categories of tests are needed
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for pt in session.injection_points:
+            t = pt.get("type_hint", "INJECT")
+            by_type.setdefault(t, []).append(pt)
+        preview_lines: list[str] = []
+        shown = 0
+        for type_hint, pts in by_type.items():
+            for pt in pts[:3]:
+                param = pt.get("parameter", "?")
+                url_short = pt.get("url", "")
+                # Show only the path portion to keep it compact
+                path = urlparse(url_short).path or url_short
+                preview_lines.append(f"  [{type_hint}] {param} @ {path}")
+                shown += 1
+            if shown >= 9:
+                break
+        suffix = f" ... +{count - shown} more" if count > shown else ""
+        parts.append(
+            f"Injection points mapped: {count} — TEST THESE in EXPLOIT phase:\n"
+            + "\n".join(preview_lines) + suffix
+        )
 
     if session.technologies:
         count = len(session.technologies)

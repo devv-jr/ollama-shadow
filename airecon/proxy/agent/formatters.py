@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .output_parser import parse_tool_output
@@ -15,6 +16,102 @@ logger = logging.getLogger("airecon.agent")
 
 # Cache for --help output per tool binary (avoids re-running)
 _help_cache: dict[str, str] = {}
+
+# ---------------------------------------------------------------------------
+# Inline security hints injected into tool output
+# ---------------------------------------------------------------------------
+# Loaded from port_correlations.json and tech_correlations.json at import time.
+# No hardcoded data — single source of truth lives in the data/ directory.
+
+_DATA_DIR = Path(__file__).parent.parent / "data"
+
+
+def _load_port_hints() -> dict[int, str]:
+    """Build {port: action_hint} from port_correlations.json."""
+    try:
+        raw = json.loads((_DATA_DIR / "port_correlations.json").read_text(encoding="utf-8"))
+        hints: dict[int, str] = {}
+        for port_str, info in raw.items():
+            try:
+                port = int(port_str)
+            except ValueError:
+                continue
+            service = info.get("service", port_str)
+            vulns: list[str] = info.get("vulns", [])
+            tools: list[str] = info.get("tools", [])
+            sev: str = info.get("severity", "")
+            parts = [service]
+            # Show first two vulns for breadth, highlight CVEs
+            if vulns:
+                parts.append("check: " + "; ".join(vulns[:2]))
+            if tools:
+                parts.append("tool: " + tools[0])
+            if sev in ("HIGH", "CRITICAL"):
+                parts.append(f"[{sev}]")
+            hints[port] = " | ".join(parts)
+        return hints
+    except Exception as exc:
+        logger.debug("Could not load port_correlations.json: %s", exc)
+        return {}
+
+
+def _load_tech_hints() -> dict[str, str]:
+    """Build {tech_lower: action_hint} from tech_correlations.json."""
+    try:
+        raw = json.loads((_DATA_DIR / "tech_correlations.json").read_text(encoding="utf-8"))
+        hints: dict[str, str] = {}
+        for tech, info in raw.items():
+            vulns: list[str] = info.get("vulns", [])
+            paths: list[str] = info.get("paths", [])
+            tools: list[str] = info.get("tools", [])
+            parts = [tech.title()]
+            if vulns:
+                parts.append("check: " + "; ".join(vulns[:2]))
+            if paths:
+                parts.append("paths: " + ", ".join(paths[:3]))
+            if tools:
+                parts.append("tool: " + tools[0])
+            hints[tech.lower()] = " | ".join(parts)
+        return hints
+    except Exception as exc:
+        logger.debug("Could not load tech_correlations.json: %s", exc)
+        return {}
+
+
+_PORT_HINTS: dict[int, str] = _load_port_hints()
+_TECH_HINTS: dict[str, str] = _load_tech_hints()
+
+# Nmap/httpx open port pattern: "80/tcp  open" or "port 80 open" or "[80]"
+_PORT_OPEN_RE = re.compile(
+    r"\b(\d{2,5})/(?:tcp|udp)\s+open"      # nmap: 80/tcp  open
+    r"|\bport\s+(\d{2,5})\s+open"           # generic: port 80 open
+    r"|\[(\d{2,5})\]",                       # httpx: [80]
+)
+
+
+def _extract_security_hints(output: str) -> list[str]:
+    """Scan tool output for open ports and tech stack, return actionable hints."""
+    hints: list[str] = []
+    seen: set[Any] = set()
+    out_lower = output.lower()
+
+    # Port-based hints
+    for m in _PORT_OPEN_RE.finditer(output):
+        port_str = m.group(1) or m.group(2) or m.group(3)
+        if not port_str:
+            continue
+        port = int(port_str)
+        if port in _PORT_HINTS and port not in seen:
+            hints.append(f"  PORT {port}: {_PORT_HINTS[port]}")
+            seen.add(port)
+
+    # Technology-based hints
+    for tech, hint in _TECH_HINTS.items():
+        if tech in out_lower and tech not in seen:
+            hints.append(f"  TECH {tech.upper()}: {hint}")
+            seen.add(tech)
+
+    return hints
 
 
 class _FormatterMixin:
@@ -152,6 +249,10 @@ class _FormatterMixin:
                 body = "\n".join(parts)
                 if len(body) > MAX_TOTAL:
                     body = body[:MAX_TOTAL] + "\n... (truncated)"
+                # Append inline security hints
+                hints = _extract_security_hints(stdout)
+                if hints:
+                    body += "\n\n[SECURITY CONTEXT — act on these]\n" + "\n".join(hints)
                 return body
 
             # Fallback: raw truncation
@@ -170,6 +271,11 @@ class _FormatterMixin:
                 body = stdout.strip()
             if len(body) > MAX_TOTAL:
                 body = body[:MAX_TOTAL] + "\n... (truncated)"
+
+            # Append inline security hints for ports/techs found in output
+            hints = _extract_security_hints(stdout)
+            if hints:
+                body += "\n\n[SECURITY CONTEXT — act on these]\n" + "\n".join(hints)
             return body
 
         if tool_name == "browser_action" and isinstance(result, dict):

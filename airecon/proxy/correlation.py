@@ -3,11 +3,11 @@
 Correlation rules are stored as JSON files in data/ and loaded at import time:
   - data/port_correlations.json        (40+ port rules)
   - data/tech_correlations.json        (86+ technology rules)
-  - data/cve_correlations.json         (20+ CVE rules)
-  - data/attack_chains.json            (10+ attack chain patterns)
-  - data/business_logic_patterns.json  (8+ business logic patterns)
-  - data/expert_testing_patterns.json  (4+ expert testing patterns)
-  - data/zeroday_patterns.json         (3+ zero-day discovery patterns)
+  - data/cve_correlations.json         (50+ CVE rules)
+  - data/attack_chains.json            (32+ attack chain patterns)
+  - data/business_logic_patterns.json  (18+ business logic patterns)
+  - data/patterns.json                 (17+ expert testing patterns)
+  - data/zeroday_patterns.json         (17+ zero-day discovery patterns)
 """
 
 from __future__ import annotations
@@ -47,8 +47,27 @@ ATTACK_CHAINS: list[dict] = _load("attack_chains.json", default=[])
 BUSINESS_LOGIC_PATTERNS: dict[str, dict] = _load(
     "business_logic_patterns.json")
 EXPERT_TESTING_PATTERNS: dict[str, dict] = _load(
-    "expert_testing_patterns.json")
+    "patterns.json")
 ZERODAY_PATTERNS: dict[str, dict] = _load("zeroday_patterns.json")
+
+# Dynamic URL path → technology map built from tech_correlations paths.
+# Replaces 6-entry hardcoded dict — now covers all 86+ technologies.
+_URL_TECH_MAP: dict[str, str] = {
+    path.lower(): tech
+    for tech, info in TECH_CORRELATIONS.items()
+    for path in info.get("paths", [])
+    if path
+}
+
+# Injection point type → attack chain keyword mapping.
+# Connects session.injection_points type_hints to relevant ATTACK_CHAINS entries.
+_INJECTION_TO_CHAIN_KEYWORD: dict[str, str] = {
+    "IDOR":           "IDOR",
+    "SSRF":           "SSRF",
+    "PATH_TRAVERSAL": "LFI",
+    "SQLi_XSS":       "SQL injection",
+    "AUTH":           "JWT",
+}
 
 
 def run_correlation(session: SessionData) -> list[dict]:
@@ -116,31 +135,40 @@ def run_correlation(session: SessionData) -> list[dict]:
                 )
                 break  # Don't add the same CVE multiple times if multiple targets match
 
-    # URL-based correlations
+    # URL-based correlations — dynamically built from tech_correlations paths.
+    # Detects 86+ technologies based on known paths in discovered URLs.
     url_str = " ".join(session.urls).lower()
-    url_patterns = {
-        "/wp-admin": "WordPress",
-        "/jmx-console": "JBoss",
-        "/actuator": "Spring Boot",
-        "/graphql": "GraphQL",
-        "/api": "REST API",
-        "/wp-json": "WordPress",
-    }
-    for path, tech in url_patterns.items():
-        if path in url_str:
+    seen_url_techs: set[str] = set()
+    for path, tech in _URL_TECH_MAP.items():
+        if path in url_str and tech not in seen_url_techs:
+            tech_info = TECH_CORRELATIONS.get(tech, {})
             results.append(
                 {
                     "type": "url_path",
                     "path": path,
                     "technology": tech,
-                    "severity": "MEDIUM",
+                    "vulnerabilities": tech_info.get("vulns", [])[:3],
+                    "tools": tech_info.get("tools", []),
+                    "severity": tech_info.get("severity", "MEDIUM"),
                 }
             )
+            seen_url_techs.add(tech)
 
-    # Expert testing patterns
+    # Expert testing patterns — normalize indicator case, also check ip_param_names
+    # so idor_hotspot fires when user_id/order_id appear as injection_point params.
+    ip_param_names_early: set[str] = {
+        pt.get("parameter", "").lower().rstrip("[]")
+        for pt in getattr(session, "injection_points", [])
+        if pt.get("parameter")
+    }
     for pattern_name, pattern_info in EXPERT_TESTING_PATTERNS.items():
         indicators = pattern_info.get("indicators", [])
-        if any(ind in url_str or ind in tech_str for ind in indicators):
+        if any(
+            ind.lower() in url_str
+            or ind.lower() in tech_str
+            or ind.lower() in ip_param_names_early
+            for ind in indicators
+        ):
             results.append(
                 {
                     "type": "expert_test",
@@ -151,29 +179,70 @@ def run_correlation(session: SessionData) -> list[dict]:
                 }
             )
 
-    # Zero-day discovery patterns
+    # Zero-day discovery patterns — normalize indicator case
     for pattern_name, pattern_info in ZERODAY_PATTERNS.items():
         indicators = pattern_info.get("indicators", [])
-        if any(ind in url_str or ind in tech_str for ind in indicators):
+        if any(ind.lower() in url_str or ind.lower() in tech_str for ind in indicators):
             results.append(
                 {
                     "type": "zeroday_potential",
                     "pattern": pattern_name,
                     "description": pattern_info.get("description"),
                     "test_vectors": pattern_info.get("test_vectors", []),
-                    "severity": "HIGH",
+                    "severity": pattern_info.get("severity", "HIGH"),
                 }
             )
 
-    # Business Logic patterns
+    # Injection point-based attack chain suggestions.
+    # Maps discovered param types (IDOR/SSRF/etc.) to relevant attack chains.
+    # This connects URL discovery → parameter analysis → exploit path.
+    injection_points = getattr(session, "injection_points", [])
+    if injection_points:
+        type_counts: dict[str, int] = {}
+        type_params: dict[str, list[str]] = {}
+        for pt in injection_points:
+            t = pt.get("type_hint", "INJECT")
+            type_counts[t] = type_counts.get(t, 0) + 1
+            type_params.setdefault(t, [])
+            param = pt.get("parameter", "")
+            if param and param not in type_params[t]:
+                type_params[t].append(param)
+
+        for inj_type, count in type_counts.items():
+            chain_keyword = _INJECTION_TO_CHAIN_KEYWORD.get(inj_type)
+            if not chain_keyword:
+                continue
+            for chain in ATTACK_CHAINS:
+                req = chain.get("required_findings", [])
+                if any(chain_keyword.lower() in r.lower() for r in req):
+                    sample_params = type_params.get(inj_type, [])[:3]
+                    results.append(
+                        {
+                            "type": "injection_chain",
+                            "injection_type": inj_type,
+                            "param_count": count,
+                            "sample_params": sample_params,
+                            "chain_name": chain.get("name"),
+                            "steps": chain.get("steps", []),
+                            "severity": chain.get("severity", "HIGH"),
+                        }
+                    )
+                    break  # one chain suggestion per injection type
+
+    # Business Logic patterns — check URL paths and injection_points params.
+    # Param names like 'price', 'amount', 'coupon' in injection_points are strong
+    # business logic indicators even if not visible in the URL path.
+    ip_param_names: set[str] = ip_param_names_early  # reuse set computed above
     for pattern_name, pattern_info in BUSINESS_LOGIC_PATTERNS.items():
         indicators = pattern_info.get("indicators", [])
-        if any(ind in url_str for ind in indicators):
+        if (any(ind.lower() in url_str for ind in indicators) or
+                any(ind.lower() in ip_param_names for ind in indicators)):
             results.append(
                 {
                     "type": "business_logic",
                     "pattern": pattern_name,
                     "description": pattern_info.get("description"),
+                    "suggested_actions": pattern_info.get("suggested_actions", []),
                     "severity": pattern_info.get("severity", "HIGH"),
                 }
             )

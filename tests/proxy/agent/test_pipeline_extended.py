@@ -13,6 +13,7 @@ def _make_session(**kwargs):
     s.open_ports = kwargs.get("open_ports", {})
     s.urls = kwargs.get("urls", [])
     s.technologies = kwargs.get("technologies", {})
+    s.injection_points = kwargs.get("injection_points", [])
     s.vulnerabilities = kwargs.get("vulnerabilities", [])
     s.completed_phases = kwargs.get("completed_phases", [])
     s.scan_count = kwargs.get("scan_count", 0)
@@ -247,11 +248,11 @@ class TestGetPhasePrompt:
         session = _make_session(
             current_phase="ANALYSIS",
             urls=["http://example.com"],
-            technologies={},  # only 1/2 criteria met
+            technologies={},  # only 1/3 criteria met
         )
         engine = PipelineEngine(session)
         prompt = engine.get_phase_prompt()
-        assert "1/2" in prompt
+        assert "1/3" in prompt
 
     def test_ctf_mode_prompt_is_exploit_focused(self):
         session = _make_session(current_phase="RECON")
