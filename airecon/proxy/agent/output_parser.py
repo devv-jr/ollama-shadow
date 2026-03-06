@@ -103,11 +103,11 @@ def parse_tool_output(command: str, stdout: str) -> ParsedOutput | None:
         "dig": _parse_line_list,
     }
 
-    parser_fn = parsers.get(tool)
+    parser_fn = parsers.get(tool) if tool else None
     if parser_fn:
         try:
             result = parser_fn(stdout)
-            result.tool = tool
+            result.tool = tool or ""
             return result
         except Exception as e:
             logger.warning(f"Parser failed for {tool}: {e}")

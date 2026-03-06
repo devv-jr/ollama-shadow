@@ -325,6 +325,8 @@ class DockerEngine:
                         on_output(text)
 
             try:
+                assert proc.stdout is not None
+                assert proc.stderr is not None
                 await asyncio.wait_for(
                     asyncio.gather(
                         _read_stream(proc.stdout, False),

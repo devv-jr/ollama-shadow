@@ -26,7 +26,7 @@ class FilePreviewScreen(ModalScreen):
             self.user_prompt = user_prompt
             super().__init__()
 
-    def __init__(self, path: str, content: str = None) -> None:
+    def __init__(self, path: str, content: str | None = None) -> None:
         self.file_path = path
         self.content = content
         super().__init__()

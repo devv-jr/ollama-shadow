@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from textual.app import App, ComposeResult
 from airecon.tui.widgets.chat import ChatPanel
 from airecon.tui.widgets.workspace import WorkspacePanel
@@ -10,7 +11,7 @@ from airecon.tui.widgets.status import StatusBar
 class WidgetTestApp(App):
     def compose(self) -> ComposeResult:
         yield ChatPanel(id="chat")
-        yield WorkspacePanel("/tmp", id="workspace")
+        yield WorkspacePanel(Path("/tmp"), id="workspace")
         yield StatusBar(id="status")
 
 

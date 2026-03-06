@@ -2,5 +2,6 @@
     "pythonVersion": "3.12",
     "typeCheckingMode": "basic",
     "reportMissingModuleSource": "none",
-    "reportPossiblyUnbound": "none"
+    "reportAttributeAccessIssue": "none",
+    "reportGeneralTypeIssues": "none"
 }

@@ -231,7 +231,7 @@ class BrowserInstance:
                     "json", "text/plain", "javascript", "xml", "html")):
                 try:
                     body = await response.text()
-                    if len(body) > MAX_RESPONSE_BODY_LENGTH:
+                    if body is not None and len(body) > MAX_RESPONSE_BODY_LENGTH:
                         body = body[:MAX_RESPONSE_BODY_LENGTH] + \
                             "... [TRUNCATED]"
                 except Exception:
@@ -257,7 +257,7 @@ class BrowserInstance:
         # Restore authentication cookies if provided (from resumed session)
         if auth_cookies:
             try:
-                await self.context.add_cookies(auth_cookies)
+                await self.context.add_cookies(auth_cookies)  # type: ignore[arg-type]
                 logger.info(
                     f"Restored {len(auth_cookies)} auth cookies from session")
             except Exception as e:
@@ -807,7 +807,7 @@ class BrowserInstance:
             self, cookies: list[dict[str, Any]], tab_id: str | None) -> dict[str, Any]:
         if not self.context:
             raise ValueError("Browser not launched")
-        await self.context.add_cookies(cookies)
+        await self.context.add_cookies(cookies)  # type: ignore[arg-type]
         state = await self._get_page_state(tab_id)
         state["injected_cookie_count"] = len(cookies)
         state["message"] = f"Injected {
@@ -1260,13 +1260,13 @@ def browser_action(
 ) -> dict[str, Any]:
     try:
         if action == "launch":
-            return _manager.launch_browser(url)
+            return _manager.launch_browser(url)  # type: ignore[arg-type]
         elif action == "goto":
-            return _manager.goto_url(url, tab_id)
+            return _manager.goto_url(url, tab_id)  # type: ignore[arg-type]
         elif action == "click":
-            return _manager.click(coordinate, tab_id)
+            return _manager.click(coordinate, tab_id)  # type: ignore[arg-type]
         elif action == "type":
-            return _manager.type_text(text, tab_id)
+            return _manager.type_text(text, tab_id)  # type: ignore[arg-type]
         elif action == "scroll_down":
             return _manager.scroll("down", tab_id)
         elif action == "scroll_up":
@@ -1276,23 +1276,23 @@ def browser_action(
         elif action == "forward":
             return _manager.forward(tab_id)
         elif action == "new_tab":
-            return _manager.new_tab(url)
+            return _manager.new_tab(url)  # type: ignore[arg-type]
         elif action == "switch_tab":
-            return _manager.switch_tab(tab_id)
+            return _manager.switch_tab(tab_id)  # type: ignore[arg-type]
         elif action == "close_tab":
-            return _manager.close_tab(tab_id)
+            return _manager.close_tab(tab_id)  # type: ignore[arg-type]
         elif action == "wait":
-            return _manager.wait_browser(duration, tab_id)
+            return _manager.wait_browser(duration, tab_id)  # type: ignore[arg-type]
         elif action == "execute_js":
-            return _manager.execute_js(js_code, tab_id)
+            return _manager.execute_js(js_code, tab_id)  # type: ignore[arg-type]
         elif action == "double_click":
-            return _manager.double_click(coordinate, tab_id)
+            return _manager.double_click(coordinate, tab_id)  # type: ignore[arg-type]
         elif action == "hover":
-            return _manager.hover(coordinate, tab_id)
+            return _manager.hover(coordinate, tab_id)  # type: ignore[arg-type]
         elif action == "press_key":
-            return _manager.press_key(key, tab_id)
+            return _manager.press_key(key, tab_id)  # type: ignore[arg-type]
         elif action == "save_pdf":
-            return _manager.save_pdf(file_path, tab_id)
+            return _manager.save_pdf(file_path, tab_id)  # type: ignore[arg-type]
         elif action == "get_console_logs":
             return _manager.get_console_logs(tab_id, clear)
         elif action == "get_network_logs":

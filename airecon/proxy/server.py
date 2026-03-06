@@ -237,8 +237,9 @@ async def _stream_agent_events(message: str) -> AsyncIterator[dict]:
         }
         return
 
+    _agent = agent  # capture non-None reference for nested function
     async def _process():
-        async for event in agent.process_message(message):
+        async for event in _agent.process_message(message):
             event_data = event.data if isinstance(event.data, dict) else {}
             yield {
                 "event": event.type,
