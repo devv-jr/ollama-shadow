@@ -59,12 +59,26 @@ VULNERABLE_PATTERNS = _fuzzer_data.get("VULNERABLE_PATTERNS", {})
 WAF_SIGNATURES = _fuzzer_data.get("WAF_SIGNATURES", {})
 CHAIN_RULES = _fuzzer_data.get("CHAIN_RULES", {})
 CHAIN_PAYLOADS = _fuzzer_data.get("CHAIN_PAYLOADS", {})
+PARAM_TYPE_MAP: dict[str, list[str]] = _fuzzer_data.get("PARAM_TYPE_MAP", {})
 # Fallback order (low → high) used when not present in fuzzer_data.json.
 # Index 0 = lowest priority in sort key (-index), so CRITICAL must be last.
 _SEVERITY_ORDER: list[str] = _fuzzer_data.get(
     "_SEVERITY_ORDER",
     ["info", "low", "medium", "high", "critical"],
 )
+
+# Maps attack type from PARAM_TYPE_MAP → relevant fuzzing payload categories.
+# Smart payload routing: SSRF params only get ssrf payloads (not XSS/SQLi/etc.)
+# This reduces noise and focuses the fuzzer on high-probability findings.
+_ATTACK_TYPE_TO_PAYLOADS: dict[str, list[str]] = {
+    "IDOR":           ["idor", "parameter_pollution"],
+    "SSRF":           ["ssrf"],
+    "PATH_TRAVERSAL": ["path_traversal"],
+    "SQLi_XSS":       ["sql_injection", "xss"],
+    "AUTH":           ["jwt", "mass_assignment"],
+    "BUSINESS_LOGIC": ["mass_assignment", "parameter_pollution"],
+    "INJECT":         ["sql_injection", "xss", "command_injection", "ssti"],
+}
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -197,8 +211,18 @@ class Fuzzer:
         self,
         params: list[str],
         vuln_types: list[str] | None = None,
+        param_type_hints: dict[str, str] | None = None,
     ) -> list[FuzzResult]:
-        """Fuzz multiple parameters concurrently."""
+        """Fuzz multiple parameters concurrently.
+
+        Args:
+            params: Parameter names to fuzz.
+            vuln_types: Explicit payload categories. None = all categories.
+            param_type_hints: Optional {param_name: attack_type} mapping.
+                When provided, each param only receives payloads relevant to
+                its type (e.g. SSRF params get ssrf payloads, not XSS/SQLi).
+                Use session.injection_points to populate this.
+        """
         if not FUZZ_PAYLOADS:
             logger.error(
                 "Fuzzer payload data is empty — fuzzer_data.json was not loaded. "
@@ -206,18 +230,41 @@ class Fuzzer:
             )
             return []
 
-        vuln_types = vuln_types or list(FUZZ_PAYLOADS.keys())
-
         # Build baseline for each param first
         baseline_tasks = [self._fetch_baseline(p) for p in params]
         await asyncio.gather(*baseline_tasks, return_exceptions=True)
 
-        # Build all (param, payload, vuln_type) combos
-        tasks = []
+        # WAF pre-check: skip params whose baseline response indicates blocking
+        # (401/403/429/503). Sending 100+ payloads through a WAF that blocks
+        # everything wastes time and burns rate limits.
+        clean_params: list[str] = []
         for param in params:
-            for vuln_type in vuln_types:
-                for payload in FUZZ_PAYLOADS.get(vuln_type, []):
-                    tasks.append(self._fuzz_single(param, payload, vuln_type))
+            b_status = self._baseline.get(param, {}).get("status", 200)
+            if b_status in (401, 403, 429, 503):
+                logger.warning(
+                    f"Skipping param '{param}' — baseline returned HTTP {b_status} "
+                    "(WAF/auth blocking detected)"
+                )
+            else:
+                clean_params.append(param)
+
+        all_vuln_types = list(FUZZ_PAYLOADS.keys())
+
+        # Build all (param, payload, vuln_type) combos with smart payload routing
+        tasks = []
+        for param in clean_params:
+            # Smart selection: if we know the param type, only test relevant payloads.
+            # Falls back to explicit vuln_types or all categories.
+            if param_type_hints and param in param_type_hints:
+                p_type = param_type_hints[param]
+                effective = _ATTACK_TYPE_TO_PAYLOADS.get(
+                    p_type, vuln_types or all_vuln_types
+                )
+            else:
+                effective = vuln_types or all_vuln_types
+            for vt in effective:
+                for payload in FUZZ_PAYLOADS.get(vt, []):
+                    tasks.append(self._fuzz_single(param, payload, vt))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
