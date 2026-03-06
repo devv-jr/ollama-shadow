@@ -105,7 +105,6 @@ async def _create_browser() -> Browser:
             _state.browser = await _state.playwright.chromium.connect_over_cdp(
                 "http://localhost:9222",
                 timeout=3000,
-                retry_delay=1000,
             )
             return _state.browser
         except Exception as e:

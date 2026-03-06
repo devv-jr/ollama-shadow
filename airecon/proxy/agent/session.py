@@ -124,6 +124,7 @@ class SessionData:
     tools_run: list[str] = field(default_factory=list)
     scan_count: int = 0
     created_at: str = ""
+    updated_at: str = ""
 
     # Browser auth state (persisted so re-runs skip re-login)
     auth_cookies: list[dict[str, Any]] = field(default_factory=list)

@@ -293,6 +293,7 @@ class DockerEngine:
             command,
         ]
 
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -371,8 +372,9 @@ class DockerEngine:
         except asyncio.TimeoutError:
             # Kill the Python-side process
             try:
-                proc.kill()
-                await proc.wait()
+                if proc is not None:
+                    proc.kill()
+                    await proc.wait()
             except Exception as _e:
                 logger.debug("Could not kill timed-out process: %s", _e)
             # Also kill container-side processes to prevent zombies
