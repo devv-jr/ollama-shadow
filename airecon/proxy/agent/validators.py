@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from typing import Any
 
 
@@ -95,11 +96,6 @@ class _ValidatorMixin:
             technical = arguments.get("technical_analysis", "").strip()
             is_ctf = bool(arguments.get("flag", "").strip())
 
-            POC_CODE_INDICATORS = (
-                "import ", "requests.", "curl ", "http", "def ", "response",
-                "payload", "exploit", "fetch(", "<?php", "<script", "burp",
-                "#!/", "python", "urllib",
-            )
             if not poc_code:
                 return False, (
                     "REPORT REJECTED: 'poc_script_code' is empty. "
@@ -111,11 +107,40 @@ class _ValidatorMixin:
                         len(poc_code)} chars). "
                     "Provide a real exploit: Python script, curl command, or HTTP request."
                 )
-            if not any(ind in poc_code.lower() for ind in POC_CODE_INDICATORS):
-                return False, (
-                    "REPORT REJECTED: 'poc_script_code' does not look like code. "
-                    "It must contain executable commands (curl, Python requests, HTTP request, etc.)."
+
+            # Determine PoC type and validate structure accordingly
+            poc_lower = poc_code.lower()
+            _is_python = any(sig in poc_lower for sig in (
+                "import ", "def ", "#!/usr/bin/env python", "#!/usr/bin/python",
+                "requests.", "urllib", "http.client",
+            ))
+            _is_curl = poc_lower.lstrip().startswith("curl ")
+            _is_php = "<?php" in poc_lower
+            _is_js = any(sig in poc_lower for sig in ("fetch(", "xmlhttprequest", "require("))
+            _is_bash = "#!/bin/bash" in poc_lower or "#!/bin/sh" in poc_lower
+
+            if _is_python:
+                # Validate Python syntax with ast.parse()
+                try:
+                    ast.parse(poc_code)
+                except SyntaxError as syn_err:
+                    return False, (
+                        f"REPORT REJECTED: 'poc_script_code' is not valid Python — "
+                        f"SyntaxError at line {syn_err.lineno}: {syn_err.msg}. "
+                        "Fix the syntax or provide a curl command instead."
+                    )
+            elif not (_is_curl or _is_php or _is_js or _is_bash):
+                # Fallback: must contain at least one concrete code indicator
+                NON_PYTHON_INDICATORS = (
+                    "curl ", "http", "payload", "exploit", "fetch(",
+                    "<?php", "<script", "burp", "#!/", "request",
                 )
+                if not any(ind in poc_lower for ind in NON_PYTHON_INDICATORS):
+                    return False, (
+                        "REPORT REJECTED: 'poc_script_code' does not look like code. "
+                        "It must be a Python script (with valid syntax), a curl command, "
+                        "PHP/JS snippet, or an HTTP request."
+                    )
             if not poc_desc or len(poc_desc) < 80:
                 return False, (
                     f"REPORT REJECTED: 'poc_description' is too short ({
