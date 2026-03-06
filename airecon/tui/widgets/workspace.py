@@ -78,16 +78,22 @@ class WorkspacePanel(Vertical):
         if not all_targets:
             return None, None
 
+        def _has_vuln_files(vp: "Path") -> bool:
+            try:
+                return vp.exists() and any(vp.iterdir())
+            except OSError:
+                return False
+
         # Prefer current target if it already has vuln files
         if self._current_target_path and self._current_target_path in all_targets:
             vp = self._current_target_path / "vulnerabilities"
-            if vp.exists() and any(vp.iterdir()):
+            if _has_vuln_files(vp):
                 return self._current_target_path, vp
 
         # Find any target that has vuln files
         for t in all_targets:
             vp = t / "vulnerabilities"
-            if vp.exists() and any(vp.iterdir()):
+            if _has_vuln_files(vp):
                 return t, vp
 
         # Fall back to most-recently-modified target (no vuln files yet)
