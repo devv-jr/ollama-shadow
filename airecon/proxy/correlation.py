@@ -154,10 +154,21 @@ def run_correlation(session: SessionData) -> list[dict]:
             )
             seen_url_techs.add(tech)
 
-    # Expert testing patterns
+    # Expert testing patterns — normalize indicator case, also check ip_param_names
+    # so idor_hotspot fires when user_id/order_id appear as injection_point params.
+    ip_param_names_early: set[str] = {
+        pt.get("parameter", "").lower().rstrip("[]")
+        for pt in getattr(session, "injection_points", [])
+        if pt.get("parameter")
+    }
     for pattern_name, pattern_info in EXPERT_TESTING_PATTERNS.items():
         indicators = pattern_info.get("indicators", [])
-        if any(ind in url_str or ind in tech_str for ind in indicators):
+        if any(
+            ind.lower() in url_str
+            or ind.lower() in tech_str
+            or ind.lower() in ip_param_names_early
+            for ind in indicators
+        ):
             results.append(
                 {
                     "type": "expert_test",
@@ -168,10 +179,10 @@ def run_correlation(session: SessionData) -> list[dict]:
                 }
             )
 
-    # Zero-day discovery patterns
+    # Zero-day discovery patterns — normalize indicator case
     for pattern_name, pattern_info in ZERODAY_PATTERNS.items():
         indicators = pattern_info.get("indicators", [])
-        if any(ind in url_str or ind in tech_str for ind in indicators):
+        if any(ind.lower() in url_str or ind.lower() in tech_str for ind in indicators):
             results.append(
                 {
                     "type": "zeroday_potential",
@@ -218,23 +229,20 @@ def run_correlation(session: SessionData) -> list[dict]:
                     )
                     break  # one chain suggestion per injection type
 
-    # Business Logic patterns — check both URL paths and injection_points params.
+    # Business Logic patterns — check URL paths and injection_points params.
     # Param names like 'price', 'amount', 'coupon' in injection_points are strong
-    # business logic indicators even if not in the URL path.
-    ip_param_names: set[str] = {
-        pt.get("parameter", "").lower().rstrip("[]")
-        for pt in getattr(session, "injection_points", [])
-        if pt.get("parameter")
-    }
+    # business logic indicators even if not visible in the URL path.
+    ip_param_names: set[str] = ip_param_names_early  # reuse set computed above
     for pattern_name, pattern_info in BUSINESS_LOGIC_PATTERNS.items():
         indicators = pattern_info.get("indicators", [])
-        if (any(ind in url_str for ind in indicators) or
-                any(ind in ip_param_names for ind in indicators)):
+        if (any(ind.lower() in url_str for ind in indicators) or
+                any(ind.lower() in ip_param_names for ind in indicators)):
             results.append(
                 {
                     "type": "business_logic",
                     "pattern": pattern_name,
                     "description": pattern_info.get("description"),
+                    "suggested_actions": pattern_info.get("suggested_actions", []),
                     "severity": pattern_info.get("severity", "HIGH"),
                 }
             )

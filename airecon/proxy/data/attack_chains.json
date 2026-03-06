@@ -3,12 +3,12 @@
     "name": "SSRF to Cloud Metadata",
     "steps": [
       "SSRF vulnerability",
-      "Access cloud metadata",
-      "Steal credentials"
+      "Access cloud metadata (169.254.169.254)",
+      "Steal IAM credentials"
     ],
     "required_findings": [
       "SSRF",
-      "Cloud metadata endpoint"
+      "cloud"
     ],
     "severity": "CRITICAL"
   },
@@ -16,12 +16,12 @@
     "name": "SQLi to OS Command",
     "steps": [
       "SQL injection",
-      "Write webshell",
-      "RCE"
+      "Write webshell via INTO OUTFILE",
+      "RCE via webshell"
     ],
     "required_findings": [
       "SQL injection",
-      "MySQL/MSSQL/PostgreSQL"
+      "mysql"
     ],
     "severity": "CRITICAL"
   },
@@ -29,12 +29,12 @@
     "name": "XSS to Cookie Steal",
     "steps": [
       "XSS vulnerability",
-      "Steal session cookie",
+      "Steal session cookie via document.cookie",
       "Session hijacking"
     ],
     "required_findings": [
       "XSS",
-      "Session cookies"
+      "cookie"
     ],
     "severity": "HIGH"
   },
@@ -42,12 +42,12 @@
     "name": "IDOR to Account Takeover",
     "steps": [
       "IDOR vulnerability",
-      "Modify user ID",
-      "Access other accounts"
+      "Enumerate user IDs to find admin",
+      "Access/modify other accounts"
     ],
     "required_findings": [
       "IDOR",
-      "User endpoint"
+      "user"
     ],
     "severity": "HIGH"
   },
@@ -55,12 +55,12 @@
     "name": "File Upload to RCE",
     "steps": [
       "Unrestricted file upload",
-      "Upload webshell",
-      "Execute shell"
+      "Upload webshell (PHP/JSP/ASPX)",
+      "Execute shell commands via HTTP"
     ],
     "required_findings": [
-      "File upload",
-      "Web shell"
+      "upload",
+      "webshell"
     ],
     "severity": "CRITICAL"
   },
@@ -68,12 +68,12 @@
     "name": "LFI to RCE",
     "steps": [
       "LFI vulnerability",
-      "Log poisoning",
-      "RCE"
+      "Log poisoning via User-Agent injection",
+      "RCE via poisoned log include"
     ],
     "required_findings": [
       "LFI",
-      "Log file access"
+      "log"
     ],
     "severity": "CRITICAL"
   },
@@ -81,12 +81,12 @@
     "name": "JWT Algorithm Confusion",
     "steps": [
       "JWT token",
-      "Algorithm confusion",
-      "Forge token"
+      "Algorithm confusion (RS256→HS256 or alg:none)",
+      "Forge admin token"
     ],
     "required_findings": [
       "JWT",
-      "Weak secret"
+      "token"
     ],
     "severity": "HIGH"
   },
@@ -94,25 +94,25 @@
     "name": "OAuth Redirect Bypass",
     "steps": [
       "OAuth implementation",
-      "Redirect URI bypass",
+      "Redirect URI bypass / open redirect",
       "Steal authorization code"
     ],
     "required_findings": [
-      "OAuth",
-      "Redirect URI"
+      "oauth",
+      "redirect"
     ],
     "severity": "HIGH"
   },
   {
     "name": "Docker Breakout",
     "steps": [
-      "Container access",
-      "Container escape",
+      "Container access via RCE",
+      "Privileged container escape",
       "Host compromise"
     ],
     "required_findings": [
-      "Docker",
-      "Container"
+      "docker",
+      "container"
     ],
     "severity": "CRITICAL"
   },
@@ -120,12 +120,142 @@
     "name": "Kubernetes Pod Escape",
     "steps": [
       "K8s pod access",
-      "Pod escape",
-      "Cluster compromise"
+      "Service account token theft",
+      "Cluster privilege escalation"
     ],
     "required_findings": [
-      "Kubernetes",
-      "Pod"
+      "kubernetes",
+      "pod"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "SSTI to Full RCE",
+    "steps": [
+      "Server-Side Template Injection found ({{7*7}}=49)",
+      "Escalate to OS command execution via template payload",
+      "Full server compromise"
+    ],
+    "required_findings": [
+      "template",
+      "ssti"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Prototype Pollution to RCE",
+    "steps": [
+      "Prototype pollution in Node.js merge/extend endpoint",
+      "Pollute process.binding or spawn prototype properties",
+      "Arbitrary command execution on server"
+    ],
+    "required_findings": [
+      "prototype",
+      "nodejs"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "XXE to SSRF and File Read",
+    "steps": [
+      "XXE injection in XML/SOAP/SVG",
+      "Read /etc/passwd and internal config files",
+      "SSRF to internal services via XXE SYSTEM entity"
+    ],
+    "required_findings": [
+      "xxe",
+      "xml"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "GraphQL IDOR to Data Theft",
+    "steps": [
+      "GraphQL introspection reveals schema and object types",
+      "Enumerate node(id:X) without ownership check",
+      "Exfiltrate cross-user data at scale via batched queries"
+    ],
+    "required_findings": [
+      "graphql",
+      "idor"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Deserialization to RCE",
+    "steps": [
+      "Unsafe deserialization endpoint found",
+      "Craft ysoserial/pickle/phpggc payload",
+      "Remote code execution via gadget chain"
+    ],
+    "required_findings": [
+      "deserializ",
+      "java"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Cache Poison to Stored XSS",
+    "steps": [
+      "Web cache poisoning via unkeyed header",
+      "Inject XSS payload into cached response body",
+      "XSS triggers for all users visiting the poisoned cached URL"
+    ],
+    "required_findings": [
+      "cache",
+      "xss"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "HTTP Smuggling to Auth Bypass",
+    "steps": [
+      "CL.TE or TE.CL request smuggling confirmed",
+      "Smuggle prefix to internal admin endpoint",
+      "Access privileged functionality without authentication"
+    ],
+    "required_findings": [
+      "smuggling",
+      "admin"
+    ],
+    "severity": "CRITICAL"
+  },
+  {
+    "name": "Path Traversal to Credential Theft",
+    "steps": [
+      "Path traversal in file/page/path parameter",
+      "Read /etc/passwd, SSH keys, .env, application configs",
+      "Use extracted credentials for lateral movement"
+    ],
+    "required_findings": [
+      "traversal",
+      "path"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Second-Order SQLi via Stored Input",
+    "steps": [
+      "Store SQLi payload in profile/username/note field",
+      "Payload executes when admin queries stored data",
+      "Extract database contents or escalate to admin"
+    ],
+    "required_findings": [
+      "sql injection",
+      "stored"
+    ],
+    "severity": "HIGH"
+  },
+  {
+    "name": "Mass Assignment to Admin Takeover",
+    "steps": [
+      "Mass assignment in user/profile API endpoint",
+      "Add role=admin or is_admin=true to update request",
+      "Full admin panel access without legitimate credentials"
+    ],
+    "required_findings": [
+      "mass assignment",
+      "admin"
     ],
     "severity": "CRITICAL"
   }

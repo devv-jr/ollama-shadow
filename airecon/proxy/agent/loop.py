@@ -556,9 +556,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                         pattern = corr.get("pattern", "?")
                                         desc = corr.get("description", "?")
                                         actions = corr.get("suggested_actions", [])
-                                        action_str = f" | DO: {actions[0]}" if actions else ""
+                                        act_lines = [f"  >> {a}" for a in actions[:2]]
+                                        act_str = ("\n" + "\n".join(act_lines)) if act_lines else ""
                                         corr_lines.append(
-                                            f"- [{severity}] EXPERT TEST ({pattern}): {desc}{action_str}")
+                                            f"- [{severity}] EXPERT TEST ({pattern}): {desc}{act_str}")
 
                                     elif vuln_type == "zeroday_potential":
                                         pattern = corr.get("pattern", "?")
@@ -573,8 +574,11 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                     elif vuln_type == "business_logic":
                                         pattern = corr.get("pattern", "?")
                                         desc = corr.get("description", "?")
+                                        actions = corr.get("suggested_actions", [])
+                                        act_lines = [f"  >> {a}" for a in actions[:2]]
+                                        act_str = ("\n" + "\n".join(act_lines)) if act_lines else ""
                                         corr_lines.append(
-                                            f"- [{severity}] BUSINESS LOGIC ({pattern}): {desc}"
+                                            f"- [{severity}] BUSINESS LOGIC ({pattern}): {desc}{act_str}"
                                         )
 
                                     elif vuln_type == "attack_chain":

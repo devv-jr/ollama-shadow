@@ -1,71 +1,140 @@
 {
   "price_manipulation": {
-    "description": "Manipulate prices in e-commerce",
+    "description": "Price/amount parameter tampering — alter transaction values to pay less or gain unauthorized discounts",
     "indicators": [
-      "price parameter",
-      "shopping cart",
+      "price",
+      "cost",
+      "total",
+      "amount",
+      "cart",
       "checkout"
+    ],
+    "suggested_actions": [
+      "Send negative price: POST /checkout with price=-100.00 to trigger credit instead of charge",
+      "Intercept payment POST and change amount=0.01 before server-side confirmation",
+      "Test price=0 and price=-1 on subscription/upgrade endpoints — some backends skip negative validation"
     ],
     "severity": "HIGH"
   },
   "quantity_manipulation": {
-    "description": "Manipulate quantities for profit",
+    "description": "Quantity/inventory tampering — negative or overflow values to gain product without payment",
     "indicators": [
-      "quantity parameter",
-      "inventory"
+      "quantity",
+      "qty",
+      "stock",
+      "inventory",
+      "units",
+      "count"
+    ],
+    "suggested_actions": [
+      "Send quantity=-1 in add-to-cart POST — may trigger refund credit without actual purchase",
+      "Integer overflow: quantity=9999999999 — wraps to 0 or negative if backend uses INT32",
+      "POST /order with qty=0 then confirm — check if order processes with zero-cost fulfillment"
     ],
     "severity": "MEDIUM"
   },
   "currency_manipulation": {
-    "description": "Change currency for better rates",
+    "description": "Currency parameter tampering — switch currency to exploit exchange rate discrepancy",
     "indicators": [
-      "currency parameter",
-      "exchange rate"
+      "currency",
+      "exchange",
+      "rate",
+      "forex",
+      "convert",
+      "locale"
+    ],
+    "suggested_actions": [
+      "Change currency=USD to currency=IRR or currency=VND — check if price converts correctly at checkout",
+      "Send currency=INVALID or currency=XBT and observe fallback behavior or unhandled exception",
+      "Intercept payment confirmation and change currency code after server calculates price in original currency"
     ],
     "severity": "HIGH"
   },
   "coupon_abuse": {
-    "description": "Abuse coupon codes",
+    "description": "Coupon/voucher abuse — reuse codes, stack discounts, or enumerate valid promo codes",
     "indicators": [
-      "coupon code",
+      "coupon",
       "discount",
-      "promo"
+      "promo",
+      "voucher",
+      "referral",
+      "code"
+    ],
+    "suggested_actions": [
+      "Race condition: send 50 simultaneous POST /redeem with same coupon_code — check if credit applied multiple times",
+      "Apply coupon then remove/re-add items — verify discount persists without re-validation",
+      "Enumerate: test SAVE10, SAVE20, PROMO2024, STAFF50, ADMIN100 — brute force sequential/patterned codes"
     ],
     "severity": "MEDIUM"
   },
   "privilege_escalation": {
-    "description": "Gain higher privileges",
+    "description": "Privilege escalation via business flow — elevate role/plan without proper authorization",
     "indicators": [
-      "role parameter",
-      "admin endpoint",
-      "user ID"
+      "role",
+      "admin",
+      "permission",
+      "privilege",
+      "plan",
+      "tier",
+      "grant",
+      "scope"
+    ],
+    "suggested_actions": [
+      "Add is_admin=true or role=admin to registration/profile-update POST body",
+      "Intercept subscription upgrade — change plan=basic to plan=enterprise before payment confirmation",
+      "Test PATCH /api/user with {\"role\":\"admin\",\"verified\":true,\"plan\":\"lifetime\"} — mass assignment check"
     ],
     "severity": "CRITICAL"
   },
-  "race_condition": {
-    "description": "Race condition in transactions",
+  "race_condition_transaction": {
+    "description": "Race condition in financial transactions — parallel requests exploit TOCTOU for double-spend",
     "indicators": [
-      "time-sensitive",
       "payment",
-      "transfer"
+      "transfer",
+      "withdraw",
+      "refund",
+      "redeem",
+      "balance"
+    ],
+    "suggested_actions": [
+      "Send 50 simultaneous POST /transfer with same idempotency key using asyncio/threading",
+      "Turbo Intruder gate technique: prepare 100 /redeem requests, release all simultaneously",
+      "Compare pre/post balance: if 50 requests processed, balance should change by 50x but check if only 1x"
     ],
     "severity": "HIGH"
   },
   "bypass_rate_limit": {
-    "description": "Bypass rate limiting",
+    "description": "Rate limit bypass — evade throttling via IP rotation headers or distributed requests",
     "indicators": [
-      "rate limit",
+      "rate",
+      "limit",
       "throttle",
-      "429"
+      "retry",
+      "quota",
+      "ratelimit"
+    ],
+    "suggested_actions": [
+      "Rotate X-Forwarded-For: 1.2.3.X values — many rate limiters key on IP from this header",
+      "Try X-Real-IP, X-Originating-IP, X-Remote-Addr, CF-Connecting-IP with fresh IPs per request",
+      "Distribute via different User-Agent strings or add random noise headers to bypass keying logic"
     ],
     "severity": "MEDIUM"
   },
   "infinite_credits": {
-    "description": "Credit balance manipulation",
+    "description": "Credit/points/wallet manipulation — negative values or race conditions to gain unlimited credits",
     "indicators": [
-      "credit balance",
+      "credit",
       "points",
-      "wallet"
+      "wallet",
+      "reward",
+      "loyalty",
+      "cashback",
+      "coins"
+    ],
+    "suggested_actions": [
+      "POST /transfer with negative amount: {\"amount\":-100} — may move credits from other accounts to yours",
+      "Race condition on credit-earning endpoint: trigger 50 simultaneous requests for same qualifying action",
+      "Integer overflow: credits=2147483648 — INT32 wraps to large negative value which may display as positive"
     ],
     "severity": "HIGH"
   }
