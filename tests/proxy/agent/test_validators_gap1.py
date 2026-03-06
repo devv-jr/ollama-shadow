@@ -32,8 +32,8 @@ class TestHTTPEvidenceValidationGap1:
         })
         is_valid, msg = result
         assert not is_valid, "Should reject HTTP 200 without impact proof"
-        assert "impact not documented" in msg.lower()
-    
+        assert msg is not None and "impact not documented" in msg.lower()
+
     def test_reject_generic_200_response(self):
         """REJECT: Generic '200 OK' without explaining what was in response"""
         poc = "The request was sent to http://target/api/users and returned a status code of HTTP 200 from the server"
@@ -45,8 +45,8 @@ class TestHTTPEvidenceValidationGap1:
         })
         is_valid, msg = result
         assert not is_valid, "Should reject generic 200 status"
-        assert "impact not documented" in msg.lower()
-    
+        assert msg is not None and "impact not documented" in msg.lower()
+
     def test_reject_redirect_alone(self):
         """REJECT: Status change shown but no impact explained"""
         poc = "Request changed status from HTTP 302 to HTTP 200 after following the redirect but no impact data provided"
@@ -58,7 +58,7 @@ class TestHTTPEvidenceValidationGap1:
         })
         is_valid, msg = result
         assert not is_valid, "Should reject status change without explaining what access was gained"
-        assert "impact not documented" in msg.lower()
+        assert msg is not None and "impact not documented" in msg.lower()
     
     # ── VALID ACCEPTANCE TESTS ────────────────────────────────────────────
     
