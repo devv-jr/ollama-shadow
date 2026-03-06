@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
+from xml.etree.ElementTree import ParseError as XMLParseError
 from dataclasses import dataclass, field
 
 
@@ -67,7 +68,7 @@ def detect_tool(command: str) -> str | None:
     # Get the first token (the binary name)
     first_token = cmd.split()[0] if cmd.split() else ""
     # Also check for sudo prefix
-    if first_token == "sudo" and len(cmd.split()) > 1:
+    if first_token == "sudo" and len(cmd.split()) > 1:  # nosec B105 - not a password
         first_token = cmd.split()[1]
 
     for pattern, tool_name in _TOOL_PATTERNS:
@@ -204,7 +205,7 @@ def _parse_nmap_xml(stdout: str) -> ParsedOutput:
 
     try:
         root = ET.fromstring(xml_content)
-    except ET.ParseError:
+    except XMLParseError:
         # Try to find just the nmap text output
         return ParsedOutput(
             tool="nmap",

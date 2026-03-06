@@ -134,14 +134,16 @@ async def _create_browser() -> Browser:
 def _get_browser() -> Browser:
     with _state.lock:
         _ensure_event_loop()
-        assert _state.event_loop is not None
+        if _state.event_loop is None:
+            raise RuntimeError("Event loop not initialized")
 
         if _state.browser is None or not _state.browser.is_connected():
             future = asyncio.run_coroutine_threadsafe(
                 _create_browser(), _state.event_loop)
             future.result(timeout=30)
 
-        assert _state.browser is not None
+        if _state.browser is None:
+            raise RuntimeError("Browser failed to initialize")
         return _state.browser
 
 
@@ -207,7 +209,7 @@ class BrowserInstance:
             post_data = None
             try:
                 post_data = request.post_data
-            except Exception:
+            except Exception:  # nosec B110 - post_data access is optional
                 pass
             reqs.append({
                 "type": "request",
@@ -246,7 +248,8 @@ class BrowserInstance:
         page.on("response", handle_response)
 
     async def _create_context(self, url: str | None = None, auth_cookies: list[dict] | None = None) -> dict[str, Any]:
-        assert self._browser is not None
+        if self._browser is None:
+            raise RuntimeError("Browser not initialized")
         self.context = await self._browser.new_context(
             viewport={"width": 1280, "height": 720},
             user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -644,7 +647,7 @@ class BrowserInstance:
         username: str,
         password: str,
         username_selector: str = 'input[type="email"],input[name="username"],input[name="email"],#username,#email',
-        password_selector: str = 'input[type="password"]',
+        password_selector: str = 'input[type="password"]',  # nosec B107 - CSS selector, not a password
         submit_selector: str = 'button[type="submit"],input[type="submit"]',
         tab_id: str | None = None,
     ) -> dict[str, Any]:
@@ -685,7 +688,7 @@ class BrowserInstance:
                 await page.fill(sel.strip(), username, timeout=3000)
                 username_filled = True
                 break
-            except Exception:
+            except Exception:  # nosec B112 - try next selector
                 continue
         if not username_filled:
             logger.warning(
@@ -698,7 +701,7 @@ class BrowserInstance:
                 await page.fill(sel.strip(), password, timeout=3000)
                 password_filled = True
                 break
-            except Exception:
+            except Exception:  # nosec B112 - try next selector
                 continue
         if not password_filled:
             logger.warning(
@@ -711,13 +714,13 @@ class BrowserInstance:
                 await page.click(sel.strip(), timeout=3000)
                 submitted = True
                 break
-            except Exception:
+            except Exception:  # nosec B112 - try next selector
                 continue
         if not submitted:
             await page.keyboard.press("Enter")
         try:
             await page.wait_for_load_state("domcontentloaded", timeout=10000)
-        except Exception:
+        except Exception:  # nosec B110 - fallback to sleep
             await asyncio.sleep(2)
         state = await self._get_page_state(tab_id)  # type: ignore[arg-type]
         if self.context:
@@ -748,7 +751,7 @@ class BrowserInstance:
             try:
                 await page.fill(sel.strip(), code, timeout=3000)
                 break
-            except Exception:
+            except Exception:  # nosec B112 - try next selector
                 continue
         await asyncio.sleep(0.3)
         submitted = False
@@ -757,7 +760,7 @@ class BrowserInstance:
                 await page.click(sel, timeout=3000)
                 submitted = True
                 break
-            except Exception:
+            except Exception:  # nosec B112 - try next selector
                 continue
         if not submitted:
             await page.keyboard.press("Enter")
@@ -920,7 +923,7 @@ class BrowserTabManager:
                     self._restart_count += 1
                     try:
                         self._browser.close()
-                    except Exception:
+                    except Exception:  # nosec B110 - best-effort cleanup before restart
                         pass
                 self._browser = BrowserInstance()
             return self._browser
@@ -961,7 +964,7 @@ class BrowserTabManager:
                     try:
                         if self._browser:
                             self._browser.close()
-                    except Exception:
+                    except Exception:  # nosec B110 - best-effort cleanup on crash
                         pass
                     self._browser = None
                     self._restart_count += 1
@@ -1167,7 +1170,7 @@ class BrowserTabManager:
         username: str,
         password: str,
         username_selector: str = 'input[type="email"],input[name="username"],input[name="email"],#username,#email',
-        password_selector: str = 'input[type="password"]',
+        password_selector: str = 'input[type="password"]',  # nosec B107 - CSS selector, not a password
         submit_selector: str = 'button[type="submit"],input[type="submit"]',
         tab_id: str | None = None,
     ) -> dict[str, Any]:

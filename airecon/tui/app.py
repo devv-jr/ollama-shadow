@@ -65,7 +65,9 @@ class AIReconApp(App):
                  **kwargs) -> None:
         super().__init__(**kwargs)
         self.proxy_url = proxy_url.rstrip("/")
-        self._http = httpx.AsyncClient(base_url=self.proxy_url, timeout=None)
+        # SSE streaming requires no read timeout; connect still has a limit
+        _sse_timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+        self._http = httpx.AsyncClient(base_url=self.proxy_url, timeout=_sse_timeout)
         self._processing = False
         self._chat_worker: asyncio.Task | None = None
         self._current_tool_id: str | None = None
@@ -98,7 +100,7 @@ class AIReconApp(App):
 
         try:
             self.query_one("#workspace-panel", WorkspacePanel).reload()
-        except Exception:
+        except Exception:  # nosec B110 - widget may not exist yet
             pass
 
         chat = self.query_one("#chat-panel", ChatPanel)
@@ -133,7 +135,7 @@ class AIReconApp(App):
                     "📌 **Saved sessions** — resume with `airecon start --session <id>`:\n"
                     + "\n".join(lines) + suffix
                 )
-        except Exception:
+        except Exception:  # nosec B110 - sessions display is best-effort
             pass
 
         # Focus input
@@ -154,7 +156,7 @@ class AIReconApp(App):
             self.query_one("#recon-bar", Static).update(
                 f"[bold #3b82f6]{char}[/]  [#8b949e]esc  interrupt[/]"
             )
-        except Exception:
+        except Exception:  # nosec B110 - spinner update is best-effort
             pass
 
     def _show_recon_spinner(self) -> None:
@@ -165,14 +167,14 @@ class AIReconApp(App):
                 f"[bold #3b82f6]{
                     self._SPINNER_CHARS[0]}[/]  [#8b949e]esc  interrupt[/]")
             bar.styles.height = 1
-        except Exception:
+        except Exception:  # nosec B110 - spinner update is best-effort
             pass
 
     def _hide_recon_spinner(self) -> None:
         """Hide the recon spinner."""
         try:
             self.query_one("#recon-bar", Static).styles.height = 0
-        except Exception:
+        except Exception:  # nosec B110 - spinner update is best-effort
             pass
 
     def on_workspace_tree_file_selected(
@@ -216,7 +218,7 @@ class AIReconApp(App):
                         self.query_one(
                             "#workspace-panel",
                             WorkspacePanel).clear_vulnerabilities_view()
-            except Exception:
+            except Exception:  # nosec B110 - vulnerability view update is best-effort
                 pass
 
             # Limit context reading to avoid hangs
@@ -292,7 +294,7 @@ class AIReconApp(App):
                     self.query_one(
                         "#workspace-panel",
                         WorkspacePanel).update_vulnerabilities_path(target_path)
-        except Exception:
+        except Exception:  # nosec B110 - vulnerability view update is best-effort
             pass
 
     async def _poll_services(self) -> None:
@@ -352,10 +354,10 @@ class AIReconApp(App):
                                         f"🔖 Active session: `{sid}` — {target}"
                                         + (f" ({scans} scans)" if scans else "")
                                     )
-                        except Exception:
+                        except Exception:  # nosec B110 - session display is best-effort
                             pass
                         break
-            except Exception:
+            except Exception:  # nosec B110 - poll retry on connection error
                 pass
 
             await asyncio.sleep(1.0)

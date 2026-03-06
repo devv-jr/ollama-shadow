@@ -187,7 +187,7 @@ async def list_skills() -> JSONResponse:
                 if line and not line.startswith("<!--"):
                     description = line[:120]
                     break
-        except Exception:
+        except Exception:  # nosec B110 - description extraction is best-effort
             pass
 
         skills.append({"name": name,

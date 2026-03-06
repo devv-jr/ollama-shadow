@@ -216,8 +216,8 @@ def list_sessions() -> list[dict]:
                 "live_hosts": len(data.get("live_hosts", [])),
                 "vulnerabilities": len(data.get("vulnerabilities", [])),
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug("Could not load session metadata: %s", _e)
 
     sessions.sort(key=lambda s: s["created_at"], reverse=True)
     return sessions
