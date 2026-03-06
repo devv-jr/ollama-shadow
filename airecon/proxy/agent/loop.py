@@ -847,6 +847,13 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             "invalid character '<'" in err_str
                             or "failed to parse JSON" in err_str
                             or "HTML error page" in err_str
+                            or "unexpected end of json" in err_lower
+                            or "<!doctype" in err_lower
+                            or "<html" in err_lower
+                            or "out of memory" in err_lower
+                            or "cuda out of memory" in err_lower
+                            or "llm runner process no longer alive" in err_lower
+                            or "signal: killed" in err_lower
                         )
                         if _is_vram_crash and _stream_attempt == 0:
                             # First attempt: auto-recover and retry with

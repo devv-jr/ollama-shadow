@@ -889,6 +889,7 @@ class BrowserInstance:
                     future.result(timeout=5)
             self.pages.clear()
             self.console_logs.clear()
+            self.network_requests.clear()
             self.current_page_id = None
             self.context = None
 
@@ -956,17 +957,26 @@ class BrowserTabManager:
                 "execution context was destroyed", "page crashed",
                 "navigation failed", "session closed",
             ))
-            if is_crash and self._restart_count < 5:
-                logger.warning(
-                    f"Browser crashed during '{action_name}': {e}. Auto-restarting...")
+            if is_crash:
+                # Atomically check and increment restart count under the lock
+                # to prevent a race where two threads both pass the count < 5
+                # check and both increment beyond the cap.
                 with self._lock:
+                    _can_restart = self._restart_count < 5
+                    if _can_restart:
+                        self._restart_count += 1
                     try:
                         if self._browser:
                             self._browser.close()
                     except Exception:  # nosec B110 - best-effort cleanup on crash
                         pass
                     self._browser = None
-                    self._restart_count += 1
+                if not _can_restart:
+                    logger.error(
+                        f"Browser action '{action_name}' failed (max restarts reached): {e}")
+                    return {"error": f"Browser action failed: {e}"}
+                logger.warning(
+                    f"Browser crashed during '{action_name}': {e}. Auto-restarting...")
                 # Retry once after restart with fresh browser
                 try:
                     fresh = self._ensure_launched()
@@ -983,7 +993,7 @@ class BrowserTabManager:
                 except Exception as e2:
                     return {"error": f"Browser crashed and retry failed: {e2}"}
             else:
-                logger.error(f"Browser action '{action_name}' failed: {e}")
+                logger.error(f"Browser action '{action_name}' failed (non-crash): {e}")
                 return {"error": f"Browser action failed: {e}"}
 
     def launch_browser(self, url: str | None = None) -> dict[str, Any]:
