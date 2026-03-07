@@ -1,7 +1,7 @@
 name: Project Board Routing
 
-# Routes issues and PRs to the correct column based on labels.
-# Requires a PAT with 'project' scope stored as GH_PROJECT_TOKEN secret.
+# Updates the Status column for issues/PRs that are ALREADY in the project.
+# Does NOT auto-add new items — only the project owner adds items manually.
 #
 # Column mapping:
 #   enhancement label → Feature
@@ -30,7 +30,7 @@ jobs:
         run: |
           if [[ -z "${{ secrets.GH_PROJECT_TOKEN }}" ]]; then
             echo "::error::GH_PROJECT_TOKEN secret is not set."
-            echo "Create a PAT with 'project' scope at:"
+            echo "Create a Classic PAT with 'project' scope at:"
             echo "  https://github.com/settings/tokens"
             echo "Then add it as a repo secret at:"
             echo "  https://github.com/pikpikcu/airecon/settings/secrets/actions"
@@ -48,7 +48,6 @@ jobs:
           OPTION_ID=""
 
           if [[ "$ACTION" == "closed" ]]; then
-            # PR must be merged (not just closed) to count as Done
             if [[ "$EVENT" == "pull_request" && "$IS_MERGED" != "true" ]]; then
               echo "PR closed without merge — skipping"
               exit 0
@@ -77,26 +76,45 @@ jobs:
             echo "node_id=${{ github.event.pull_request.node_id }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Add item to project
+      - name: Find item in project (if exists)
         if: steps.target.outputs.option_id != '' && steps.content.outputs.node_id != ''
-        id: add_item
+        id: find_item
         env:
           GH_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
           CONTENT_ID: ${{ steps.content.outputs.node_id }}
         run: |
+          # Look up the project item ID for this issue/PR — do NOT add if missing
           ITEM_ID=$(gh api graphql \
-            -f query='mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}' \
-            -f p="$PROJECT_ID" \
-            -f c="$CONTENT_ID" \
-            --jq '.data.addProjectV2ItemById.item.id')
+            -f query='
+              query($contentId: ID!) {
+                node(id: $contentId) {
+                  ... on Issue {
+                    projectItems(first: 20) {
+                      nodes { id project { id } }
+                    }
+                  }
+                  ... on PullRequest {
+                    projectItems(first: 20) {
+                      nodes { id project { id } }
+                    }
+                  }
+                }
+              }' \
+            -f contentId="$CONTENT_ID" \
+            --jq "[.data.node.projectItems.nodes[] | select(.project.id == \"$PROJECT_ID\") | .id] | first // empty")
+
+          if [[ -z "$ITEM_ID" ]]; then
+            echo "Item not in project — skipping (owner must add manually)"
+            exit 0
+          fi
 
           echo "item_id=$ITEM_ID" >> "$GITHUB_OUTPUT"
 
       - name: Set status column
-        if: steps.target.outputs.option_id != '' && steps.add_item.outputs.item_id != ''
+        if: steps.target.outputs.option_id != '' && steps.find_item.outputs.item_id != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
-          ITEM_ID: ${{ steps.add_item.outputs.item_id }}
+          ITEM_ID: ${{ steps.find_item.outputs.item_id }}
           OPTION_ID: ${{ steps.target.outputs.option_id }}
         run: |
           gh api graphql \
@@ -106,4 +124,4 @@ jobs:
             -f f="$STATUS_FIELD_ID" \
             -f v="$OPTION_ID"
 
-          echo "✓ Item routed to column (option: $OPTION_ID)"
+          echo "✓ Routed item $ITEM_ID to column (option: $OPTION_ID)"
