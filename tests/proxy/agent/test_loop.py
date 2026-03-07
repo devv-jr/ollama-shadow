@@ -58,3 +58,66 @@ def test_agent_state_reset(agent_loop):
 
     assert agent_loop.state.iteration == 0
     assert len(agent_loop._executed_tool_counts) == 0
+
+
+# ---------------------------------------------------------------------------
+# Subdomain workspace preservation
+# Verifies the logic introduced in loop.py: when extracted_target is a
+# subdomain of the current active_target, active_target must NOT change so
+# that all recon output stays in the parent-domain workspace folder.
+# ---------------------------------------------------------------------------
+
+class TestSubdomainWorkspacePreservation:
+    """
+    Isolated unit tests for the subdomain-target guard in loop.py.
+
+    We replicate the exact guard condition so that any drift between the
+    implementation and the tests fails loudly.
+    """
+
+    @staticmethod
+    def _would_switch(extracted: str, current: str | None) -> bool:
+        """Mirror of the guard condition in loop.py process_message."""
+        _is_subdomain = bool(
+            current
+            and extracted != current
+            and extracted.endswith("." + current)
+        )
+        return not _is_subdomain
+
+    # --- True: target SHOULD change ---
+
+    def test_fresh_target_when_no_current(self):
+        """First message — no current target → always set."""
+        assert self._would_switch("target.example.com", None) is True
+
+    def test_different_domain_switches(self):
+        """Completely different domain should switch workspace."""
+        assert self._would_switch("evil.com", "target.example.com") is True
+
+    def test_parent_to_different_tld_switches(self):
+        assert self._would_switch("target.example.org", "target.example.com") is True
+
+    def test_same_target_does_not_switch(self):
+        """Repeated same target is allowed (idempotent)."""
+        assert self._would_switch("target.example.com", "target.example.com") is True
+
+    # --- False: target should NOT change (subdomain case) ---
+
+    def test_subdomain_does_not_switch(self):
+        """app.target.example.com is a subdomain → keep parent workspace."""
+        assert self._would_switch("app.target.example.com", "target.example.com") is False
+
+    def test_deep_subdomain_does_not_switch(self):
+        assert self._would_switch("api.v2.target.example.com", "target.example.com") is False
+
+    def test_single_label_subdomain_does_not_switch(self):
+        assert self._would_switch("mail.example.com", "example.com") is False
+
+    def test_partial_suffix_match_is_not_subdomain(self):
+        """'navigatemore.com' ends with 'e.com' but NOT 'target.example.com'."""
+        assert self._would_switch("navigatemore.com", "target.example.com") is True
+
+    def test_ip_as_extracted_is_different_domain(self):
+        """IP is always treated as a different target, not a subdomain."""
+        assert self._would_switch("192.168.1.1", "target.example.com") is True

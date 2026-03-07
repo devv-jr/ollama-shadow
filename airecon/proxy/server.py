@@ -101,6 +101,13 @@ class ChatRequest(BaseModel):
     stream: bool = True
 
 
+class FileAnalyzeRequest(BaseModel):
+    file_path: str
+    file_content: str
+    task: str
+    max_iterations: int = 30
+
+
 class StatusResponse(BaseModel):
     status: str
     ollama: dict[str, Any]
@@ -253,6 +260,83 @@ async def _stream_agent_events(message: str) -> AsyncIterator[dict]:
     else:
         async for item in _process():
             yield item
+
+
+@app.post("/api/file-analyze", response_model=None)
+async def file_analyze(request: FileAnalyzeRequest) -> EventSourceResponse | JSONResponse:
+    """Run a fresh mini-agent to analyze a file without interrupting the main recon agent.
+
+    Creates an independent AgentLoop (not the global one) so both can run
+    concurrently.  The mini-agent is limited to read/analysis tools and capped
+    at max_iterations to prevent runaway usage.
+    """
+    if not ollama_client or not engine:
+        return JSONResponse({"error": "Services not ready"}, status_code=503)
+
+    return EventSourceResponse(
+        _stream_file_agent_events(request),
+        media_type="text/event-stream",
+    )
+
+
+async def _stream_file_agent_events(
+    request: FileAnalyzeRequest,
+) -> AsyncIterator[dict]:
+    """Stream events from a mini file-analysis AgentLoop."""
+    mini_agent = AgentLoop(ollama_client, engine)  # type: ignore[arg-type]
+    mini_agent._override_max_iterations = min(request.max_iterations, 50)
+    # Block destructive/recon-heavy tools — file analysis only needs read/exec
+    mini_agent._blocked_tools = {
+        "spawn_agent",
+        "quick_fuzz", "advanced_fuzz", "deep_fuzz", "schemathesis_fuzz",
+        "caido_automate", "caido_send_request",
+    }
+
+    # Extract target from file_path so tool outputs land in the correct
+    # workspace folder instead of the fallback "unknown/" directory.
+    # Handles paths like:
+    #   workspace/example.com/output/file.txt  → "example.com"
+    #   /workspace/example.com/output/file.txt → "example.com"
+    #   example.com/output/file.txt            → "example.com"
+    _fp_parts = Path(request.file_path.lstrip("/")).parts
+    _target: str | None = None
+    for _i, _part in enumerate(_fp_parts):
+        if _part == "workspace" and _i + 1 < len(_fp_parts):
+            _target = _fp_parts[_i + 1]
+            break
+        if _i == 0 and "." in _part and not _part.startswith("."):
+            _target = _part
+            break
+    if _target:
+        mini_agent.state.active_target = _target
+
+    # Embed a snippet of file content in the system prompt so the model has
+    # immediate context.  If the file is large, the agent can use read_file.
+    _MAX_EMBED = 8_000
+    file_snippet = request.file_content[:_MAX_EMBED]
+    truncation_note = (
+        f"\n[File truncated to {_MAX_EMBED} chars. "
+        f"Use read_file tool for full content: {request.file_path}]"
+        if len(request.file_content) > _MAX_EMBED else ""
+    )
+
+    mini_agent.state.conversation = [{
+        "role": "system",
+        "content": (
+            "You are a security file analyzer. Your sole task is to analyze "
+            "the provided file and answer the user question. Be concise and "
+            "focus on security-relevant findings.\n\n"
+            f"Target file: {request.file_path}\n"
+            f"File content:\n```\n{file_snippet}\n```{truncation_note}"
+        ),
+    }]
+
+    async for event in mini_agent.process_message(request.task):
+        event_data = event.data if isinstance(event.data, dict) else {}
+        yield {
+            "event": event.type,
+            "data": json.dumps({"type": event.type, **event_data}, default=str),
+        }
 
 
 @app.post("/api/reset")
