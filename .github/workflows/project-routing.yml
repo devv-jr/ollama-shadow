@@ -26,6 +26,17 @@ jobs:
   route:
     runs-on: ubuntu-latest
     steps:
+      - name: Check token is configured
+        run: |
+          if [[ -z "${{ secrets.GH_PROJECT_TOKEN }}" ]]; then
+            echo "::error::GH_PROJECT_TOKEN secret is not set."
+            echo "Create a PAT with 'project' scope at:"
+            echo "  https://github.com/settings/tokens"
+            echo "Then add it as a repo secret at:"
+            echo "  https://github.com/pikpikcu/airecon/settings/secrets/actions"
+            exit 1
+          fi
+
       - name: Determine target column
         id: target
         env:
@@ -56,12 +67,22 @@ jobs:
 
           echo "option_id=$OPTION_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Add item to project
+      - name: Get content node ID
+        id: content
         if: steps.target.outputs.option_id != ''
+        run: |
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            echo "node_id=${{ github.event.issue.node_id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "node_id=${{ github.event.pull_request.node_id }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add item to project
+        if: steps.target.outputs.option_id != '' && steps.content.outputs.node_id != ''
         id: add_item
         env:
           GH_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
-          CONTENT_ID: ${{ github.event.issue.node_id || github.event.pull_request.node_id }}
+          CONTENT_ID: ${{ steps.content.outputs.node_id }}
         run: |
           ITEM_ID=$(gh api graphql \
             -f query='mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}' \
