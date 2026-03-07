@@ -401,6 +401,164 @@ class ThinkingSpinner(Horizontal):
 
 
 # ═══════════════════════════════════════════════════════════════
+#  SubAgentBlock — Collapsible block for a running sub-agent
+# ═══════════════════════════════════════════════════════════════
+
+class SubAgentBlock(Vertical):
+    """Collapsible block that streams a sub-agent's LLM output and tool calls.
+
+    While running: header + spinner + Static (accumulated text) + ToolMessages.
+    When done: collapses to a one-liner summary (click to re-expand).
+
+    Text tokens are accumulated into a single string and the Static widget is
+    refreshed in batches (every 50 chars or on newline) — same pattern as
+    StreamingMessage — so word-by-word LLM tokens render as flowing prose, not
+    one word per line.
+    """
+
+    DEFAULT_CSS = ""  # Defer to styles.tcss
+    can_focus = True
+
+    def __init__(self, task_label: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.task_label = task_label
+        self._expanded = True
+        self._done = False
+        self._success = True
+        self._total_duration = 0.0
+        self._tool_count = 0
+        self._text_str: str = ""          # full accumulated text for replay
+        self._last_flush_len: int = 0     # chars already rendered to _text_static
+        self._active_tools: dict[str, ToolMessage] = {}
+        self._body: Vertical | None = None
+        self._text_static: Static | None = None
+        self.add_class("subagent-block", "running")
+
+    def compose(self):
+        yield Static(self._header_text(), classes="subagent-header")
+        yield LoadingIndicator(classes="subagent-spinner")
+        self._body = Vertical(classes="subagent-body")
+        yield self._body
+
+    def on_mount(self) -> None:
+        if self._body is not None:
+            self._text_static = Static("", markup=False, classes="subagent-text")
+            self._body.mount(self._text_static)
+
+    # ── Text streaming ──────────────────────────────────────────
+
+    def _header_text(self, note: str = "") -> Text:
+        t = Text()
+        t.append("◈ ", style="bold #a78bfa")
+        t.append("Sub-Agent", style="bold #c9d1d9")
+        t.append("  ", style="")
+        label = (self.task_label[:72] + "…") if len(self.task_label) > 72 else self.task_label
+        t.append(label, style="#8b949e")
+        if note:
+            t.append(note, style="dim #484f58")
+        return t
+
+    def append_text(self, text: str) -> None:
+        """Accumulate LLM text tokens and flush to Static in batches."""
+        self._text_str += _strip_ansi(text)
+        if self._text_static is None or not self._expanded:
+            return
+        pending = len(self._text_str) - self._last_flush_len
+        if pending >= 50 or "\n" in text:
+            try:
+                self._text_static.update(self._text_str)
+                self._last_flush_len = len(self._text_str)
+            except Exception:  # nosec B110 - markup-safe Static, shouldn't fail
+                pass
+
+    # ── Nested tool calls ────────────────────────────────────────
+
+    def add_tool_start(self, tool_id: str, tool_name: str,
+                       args: dict | str) -> None:
+        msg = ToolMessage(tool_name, args)
+        self._active_tools[tool_id] = msg
+        self._tool_count += 1
+        if self._body is not None and self._expanded:
+            self._body.mount(msg)
+
+    def append_tool_output(self, tool_id: str, text: str) -> None:
+        msg = self._active_tools.get(tool_id)
+        if msg:
+            msg.append_output(text)
+
+    def update_tool_end(self, tool_id: str, success: bool, duration: float,
+                        output: str, output_file: str = "") -> None:
+        self._total_duration += duration
+        msg = self._active_tools.pop(tool_id, None)
+        if msg:
+            msg.update_result(success, duration, output, output_file)
+
+    # ── Completion ────────────────────────────────────────────────
+
+    def finish(self, success: bool = True) -> None:
+        """Mark the sub-agent as done and collapse to a summary."""
+        self._done = True
+        self._success = success
+        self.remove_class("running")
+        self.add_class("done" if success else "error")
+        self.call_after_refresh(self._collapse_to_summary)
+
+    def _collapse_to_summary(self) -> None:
+        for child in list(self.children):
+            try:
+                child.remove()
+            except Exception:  # nosec B110 - best-effort cleanup
+                pass
+
+        icon = "✓" if self._success else "✗"
+        icon_style = "#00d4aa" if self._success else "#ef4444"
+        summary = Text()
+        summary.append("◈ ", style="bold #a78bfa")
+        summary.append(f"{icon} Sub-Agent", style=f"bold {icon_style}")
+        summary.append("  ", style="")
+        label = (self.task_label[:52] + "…") if len(self.task_label) > 52 else self.task_label
+        summary.append(label, style="#484f58")
+        if self._total_duration > 0:
+            summary.append(f"  {self._total_duration:.1f}s", style="#8b949e")
+        if self._tool_count:
+            plural = "s" if self._tool_count > 1 else ""
+            summary.append(f"  · {self._tool_count} tool{plural}", style="#8b949e")
+        summary.append("  [↕]", style="dim #484f58")
+        self.mount(Static(summary, classes="subagent-summary"))
+        self._body = None
+        self._text_static = None
+        self._expanded = False
+
+    def _expand_full(self) -> None:
+        try:
+            self.query_one(".subagent-summary", Static).remove()
+        except Exception:  # nosec B110 - may already be gone
+            pass
+
+        self.mount(Static(self._header_text("  [↕]"), classes="subagent-header"))
+        body = Vertical(classes="subagent-body")
+        self._body = body
+        self.mount(body)
+
+        # Replay saved text as a read-only Static
+        if self._text_str:
+            replay = Static(self._text_str, markup=False, classes="subagent-text")
+            body.mount(replay)
+        self._text_static = None   # read-only replay; no new writes
+        self._expanded = True
+
+    # ── Interaction ───────────────────────────────────────────────
+
+    def on_click(self) -> None:
+        if not self._done:
+            return
+        if self._expanded:
+            self._collapse_to_summary()
+        else:
+            self._expand_full()
+
+
+# ═══════════════════════════════════════════════════════════════
 #  ChatPanel — Scrollable container for all messages
 # ═══════════════════════════════════════════════════════════════
 
@@ -419,6 +577,7 @@ class ChatPanel(VerticalScroll):
         self._thinking_msg: ThinkingSpinner | None = None
         # initialized here, not lazily
         self._active_tools: dict[str, ToolMessage] = {}
+        self._active_subagents: dict[str, SubAgentBlock] = {}
         self._pending: list = []  # widgets buffered before on_mount
 
     def on_mount(self) -> None:
@@ -530,7 +689,51 @@ class ChatPanel(VerticalScroll):
 
     def clear_messages(self) -> None:
         self.query(
-            "ChatMessage, StreamingMessage, ToolMessage, ThinkingSpinner").remove()
+            "ChatMessage, StreamingMessage, ToolMessage, ThinkingSpinner, SubAgentBlock"
+        ).remove()
         self._streaming_msg = None
         self._thinking_msg = None
-        self._active_tools.clear()  # prevent stale tool refs after Ctrl+L
+        self._active_tools.clear()
+        self._active_subagents.clear()
+
+    # ── Sub-agent block API ──────────────────────────────────────
+
+    def add_subagent_block(self, agent_id: str, task_label: str) -> None:
+        """Mount a new collapsible sub-agent block."""
+        self.end_streaming()
+        self.end_thinking()
+        block = SubAgentBlock(task_label)
+        self._active_subagents[agent_id] = block
+        self._safe_mount(block)
+        self.scroll_end(animate=False)
+
+    def subagent_append_text(self, agent_id: str, text: str) -> None:
+        block = self._active_subagents.get(agent_id)
+        if block:
+            block.append_text(text)
+
+    def subagent_add_tool(self, agent_id: str, tool_id: str,
+                          tool_name: str, args: dict | str) -> None:
+        block = self._active_subagents.get(agent_id)
+        if block:
+            block.add_tool_start(tool_id, tool_name, args)
+            self.scroll_end(animate=False)
+
+    def subagent_append_tool_output(self, agent_id: str,
+                                    tool_id: str, text: str) -> None:
+        block = self._active_subagents.get(agent_id)
+        if block:
+            block.append_tool_output(tool_id, text)
+
+    def subagent_update_tool_end(self, agent_id: str, tool_id: str,
+                                 success: bool, duration: float,
+                                 output: str, output_file: str = "") -> None:
+        block = self._active_subagents.get(agent_id)
+        if block:
+            block.update_tool_end(tool_id, success, duration, output, output_file)
+
+    def subagent_finish(self, agent_id: str, success: bool = True) -> None:
+        block = self._active_subagents.pop(agent_id, None)
+        if block:
+            block.finish(success)
+            self.scroll_end(animate=False)

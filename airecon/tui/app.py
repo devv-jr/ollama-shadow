@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,7 @@ class AIReconApp(App):
         self._last_workspace_reload: float = 0.0
         self._last_scroll_time: float = 0.0   # scroll debounce, init here not lazily
         self._recon_frame: int = 0
+        self._file_agents_running: int = 0  # active file-analyze sub-agents
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -391,7 +393,7 @@ class AIReconApp(App):
                     model = data.get("ollama", {}).get("model", "—")
                     tool_counts = data.get("agent", {}).get("tool_counts", {})
                     exec_used = tool_counts.get("exec", 0)
-                    subagents = tool_counts.get("subagents", 0)
+                    subagents = tool_counts.get("subagents", 0) + self._file_agents_running
                     token_info = data.get("agent", {}).get("token_usage", {})
                     tokens_used = token_info.get("used", 0)
                     tokens_limit = token_info.get("limit", 65536)
@@ -514,41 +516,42 @@ class AIReconApp(App):
                 f"Failed to open file: {e}")
 
     def on_preview_result(self, result: Any) -> None:
-        """Handle result from FilePreviewScreen dismissal."""
-        # result corresponds to what was passed to dismiss()
-        # It should be a FilePreviewScreen.Submitted object
+        """Handle result from FilePreviewScreen dismissal.
+
+        Instead of sending the prompt to the main recon agent (which would
+        interrupt ongoing reconnaissance), this spawns an independent mini-agent
+        via /api/file-analyze.  Both agents run concurrently.
+        """
         if isinstance(result, FilePreviewScreen.Submitted):
-            # Construct context-aware prompt
-            # We treat this similar to loading a file from tree
-            # Resolve absolute path for clarity
             abs_path = os.path.abspath(result.file_path)
-            cwd = os.getcwd()
-
-            chat = self.query_one(ChatPanel)
-            # Display relative path to user for brevity (Path-based check
-            # avoids false positives)
             _abs = Path(abs_path)
-            _cwd = Path(cwd)
-            display_path = str(_abs.relative_to(
-                _cwd)) if _abs.is_relative_to(_cwd) else abs_path
-            chat.add_user_message(
-                f"[CONTEXT: {display_path}]\n{
-                    result.user_prompt}")
-
-            full_prompt = (
-                f"[SYSTEM: ACTIVE RESULT CONTEXT]\n"
-                f"Current Working Directory (PWD): {cwd}\n"
-                f"Target File: {abs_path}\n"
-                f"INSTRUCTION: The user is referring to the file at '{abs_path}'. "
-                f"You must use this absolute path for any file operations. "
-                f"If the user asks to read it, use the 'read_file' tool with this exact path.\n"
-                f"USER PROMPT: {result.user_prompt}"
+            _cwd = Path(os.getcwd())
+            display_path = (
+                str(_abs.relative_to(_cwd))
+                if _abs.is_relative_to(_cwd) else abs_path
             )
 
+            chat = self.query_one(ChatPanel)
+            chat.add_user_message(
+                f"[FILE ANALYSIS: {display_path}]\n{result.user_prompt}"
+            )
+            chat.add_system_message(
+                "[dim]Running as background sub-agent — main recon continues uninterrupted.[/dim]"
+            )
+
+            # Read file content to send to the mini-agent
+            try:
+                p = _abs
+                if p.stat().st_size > 100_000:
+                    content = p.read_text(errors="replace")[:100_000]
+                else:
+                    content = p.read_text(errors="replace")
+            except Exception as e:
+                content = f"[Could not read file: {e}]"
+
             self.run_worker(
-                self._stream_chat_response(
-                    full_prompt,
-                    inject_context=False))
+                self._stream_file_analysis(abs_path, content, result.user_prompt)
+            )
 
     def _clear_active_file_context(self) -> None:
         """Clear active file context after use/reset."""
@@ -890,6 +893,114 @@ class AIReconApp(App):
             # Hide recon spinner
             self._hide_recon_spinner()
             logger.debug("Stream worker finished")
+
+    async def _stream_file_analysis(
+        self, file_path: str, content: str, task: str
+    ) -> None:
+        """Stream results from the file-analysis mini-agent into a SubAgentBlock.
+
+        Uses /api/file-analyze which creates a fresh AgentLoop independent of
+        the main recon agent, so both can run concurrently.
+        """
+        chat = self.query_one("#chat-panel", ChatPanel)
+        agent_id = str(uuid.uuid4())
+        success = True
+
+        # Mount the collapsible block and update status bar
+        chat.add_subagent_block(agent_id, task)
+        self._file_agents_running += 1
+        try:
+            self.query_one("#status-bar", StatusBar).subagents_spawned += 1
+        except Exception:  # nosec B110 - best-effort
+            pass
+
+        try:
+            async with self._http.stream(
+                "POST",
+                "/api/file-analyze",
+                json={
+                    "file_path": file_path,
+                    "file_content": content,
+                    "task": task,
+                    "max_iterations": 30,
+                },
+                headers={"Accept": "text/event-stream"},
+                timeout=None,
+            ) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    chat.add_error_message(
+                        f"File analysis error ({resp.status_code}): "
+                        f"{body.decode()[:300]}"
+                    )
+                    success = False
+                    return
+
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                    elif line.startswith("data:"):
+                        data_str = line[5:]
+                    else:
+                        continue
+
+                    try:
+                        event = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    event_type = event.get("type", "")
+
+                    if event_type == "text":
+                        text = event.get("content", "")
+                        if text:
+                            chat.subagent_append_text(agent_id, text)
+                            _now = time.monotonic()
+                            if _now - self._last_scroll_time >= 0.3:
+                                chat.scroll_end(animate=False)
+                                self._last_scroll_time = _now
+
+                    elif event_type == "tool_start":
+                        tool_id = str(event.get("tool_id", "0"))
+                        tool_name = event.get("tool", "unknown")
+                        arguments = event.get("arguments", {})
+                        chat.subagent_add_tool(agent_id, tool_id, tool_name, arguments)
+
+                    elif event_type == "tool_output":
+                        tool_id = str(event.get("tool_id", "0"))
+                        output = event.get("content", "")
+                        if output:
+                            chat.subagent_append_tool_output(agent_id, tool_id, output)
+
+                    elif event_type == "tool_end":
+                        tool_id = str(event.get("tool_id", "0"))
+                        chat.subagent_update_tool_end(
+                            agent_id, tool_id,
+                            event.get("success", False),
+                            event.get("duration", 0.0),
+                            event.get("result_preview", ""),
+                            event.get("output_file", ""),
+                        )
+
+                    elif event_type in ("done", "complete"):
+                        break
+
+        except Exception as e:
+            logger.exception("File analysis stream error: %s", e)
+            success = False
+            chat.add_error_message(f"File analysis failed: {e}")
+        finally:
+            chat.subagent_finish(agent_id, success)
+            self._file_agents_running = max(0, self._file_agents_running - 1)
+            try:
+                status_bar = self.query_one("#status-bar", StatusBar)
+                status_bar.subagents_spawned = max(
+                    0, status_bar.subagents_spawned - 1
+                )
+            except Exception:  # nosec B110 - best-effort
+                pass
 
     async def _handle_slash_command(self, cmd: str) -> None:
         """Handle slash commands."""

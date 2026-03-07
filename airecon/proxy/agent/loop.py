@@ -43,6 +43,13 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         r"<tool_call>\s*(\{.*?\})\s*</tool_call>",
         re.DOTALL | re.IGNORECASE,
     )
+    # Detects bash/shell code blocks the LLM writes as plain text instead of
+    # calling a tool.  Pattern:  ```bash\n...\n```  or  ```sh\n...\n```
+    # A block with ≥1 non-empty line = hallucinated command execution.
+    _FAKE_CMD_BLOCK_RE = re.compile(
+        r"```(?:bash|sh|shell|cmd|terminal|zsh)?\s*\n(.+?)```",
+        re.DOTALL | re.IGNORECASE,
+    )
 
     # Tools exempt from dedup (interactive / stateful operations that must be
     # re-runnable)
@@ -74,6 +81,9 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         self._initial_messages: list[dict[str, Any]] = []
         self._stop_requested: bool = False
         self._consecutive_failures: int = 0
+        # Tracks consecutive iterations where LLM returned no tool calls.
+        # Used to escalate nudges when the model is stuck in text-only mode.
+        self._no_tool_iterations: int = 0
         self._session: SessionData | None = None
         self._pending_output_merges: dict[str, list[str]] = {}
         # Tools blocked for this agent (e.g. depth control)
@@ -243,11 +253,14 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     user_message=user_message,
                 )
             else:
-                # Subsequent messages: detect CTF target and activate mode if
-                # not yet done
+                # Subsequent messages: re-check CTF only against the new
+                # target URL — NOT the message body.  Passing user_message
+                # here caused false positives when the LLM's own output
+                # (or the user's follow-up) contained security terms like
+                # "flag", "challenge", or "benchmark" during a normal recon.
                 if not self._ctf_mode and extracted_target:
                     from ..system import _is_ctf_target
-                    if _is_ctf_target(extracted_target, user_message):
+                    if _is_ctf_target(extracted_target, user_message=None):
                         self._ctf_mode = True
                         if self._override_max_iterations is None:
                             self._override_max_iterations = self._CTF_MAX_ITERATIONS
@@ -259,7 +272,19 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         )
 
             if extracted_target:
-                self.state.active_target = extracted_target
+                # Don't switch workspace when the new target is a subdomain of
+                # the current active target.  Subdomain results belong under the
+                # parent domain's workspace so we don't scatter output into
+                # separate top-level folders (e.g. app.example.com/ next to
+                # example.com/).
+                _current = self.state.active_target
+                _is_subdomain = bool(
+                    _current
+                    and extracted_target != _current
+                    and extracted_target.endswith("." + _current)
+                )
+                if not _is_subdomain:
+                    self.state.active_target = extracted_target
 
             cfg = get_config()
 
@@ -371,10 +396,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             self.state.warnings_sent = False
             self._stop_requested = False
             self._consecutive_failures = 0
+            self._no_tool_iterations = 0
             # NOTE: Do NOT clear _executed_tool_counts here — dedup must persist
             # across messages within the same session. It is only cleared in
             # reset().
-            last_iteration_had_tools = False
 
             while self.state.iteration < self.state.max_iterations:
                 if self._stop_requested:
@@ -948,25 +973,37 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 # --- RESPONSE QUALITY GATE ---
                 combined_response = content_acc + " " + thinking_acc
                 # Signals that indicate the model is fabricating results instead of running tools.
-                # These are tuned for local LLMs (Ollama/Mistral/Llama) which tend to narrate
+                # These are tuned for local LLMs (Ollama/Qwen/Llama) which tend to narrate
                 # findings confidently without calling tools.
                 hallucination_signals = [
-                    "i have found",          # Claims finding without tool output
-                    "the scan shows",        # Claims scan result without running scan
-                    "the results indicate",  # Claims results without tool evidence
-                    "my analysis shows",     # Claims analysis without code_analysis tool
-                    "it appears that",       # Speculative claim without evidence
+                    "i have found",           # Claims finding without tool output
+                    "the scan shows",         # Claims scan result without running scan
+                    "the results indicate",   # Claims results without tool evidence
+                    "my analysis shows",      # Claims analysis without code_analysis tool
+                    "it appears that",        # Speculative claim without evidence
                     "based on my knowledge",  # LLM knowledge, not live tool output
-                    "without running",       # Explicitly admits no tool used
-                    "i don't have access to",  # Model refusing instead of using tools
+                    "without running",        # Explicitly admits no tool used
+                    "i don't have access to", # Model refusing instead of using tools
+                    "i will run",             # Fake planning instead of executing
+                    "let me run",             # Fake planning instead of executing
+                    "let me execute",         # Fake planning instead of executing
+                    "i'll run",               # Fake planning instead of executing
+                    "i'll execute",           # Fake planning instead of executing
+                    "i would run",            # Conditional instead of actual execution
+                    "next, i'll",             # Step-by-step planning without execution
+                    "i should run",           # Obligation without execution
                 ]
+                combined_lower = combined_response.lower()
                 has_hallucination_risk = any(
-                    signal in combined_response.lower()
-                    for signal in hallucination_signals
+                    signal in combined_lower for signal in hallucination_signals
                 )
 
-                # Enhanced hallucination check: stricter in EXPLOIT phase or after vulnerability found
-                has_prior_tool_runs = last_iteration_had_tools
+                # Bash/shell code block = LLM wrote a command as text instead of
+                # calling execute{}.  This is the most common hallucination pattern.
+                has_fake_cmd_block = bool(
+                    self._FAKE_CMD_BLOCK_RE.search(content_acc)
+                ) if not tool_calls_acc else False
+
                 is_exploit_phase = self.pipeline and self.pipeline.get_current_phase(
                 ) == PipelinePhase.EXPLOIT
                 has_vulns = self._session and len(
@@ -974,40 +1011,74 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 is_post_vuln_context = has_vulns and (
                     is_exploit_phase or self.state.iteration > 15)
 
-                if has_hallucination_risk and not tool_calls_acc and not has_prior_tool_runs:
-                    if is_post_vuln_context:
+                # Trigger nudge when:
+                # - hallucination signal found, OR fake bash block detected
+                # - AND no actual tool calls this iteration
+                # - AND either in post-vuln context OR 2+ consecutive no-tool iterations
+                #
+                # Removed the old `not has_prior_tool_runs` gate — it caused the
+                # check to be silently skipped whenever the previous iteration had
+                # tool calls, which is always true mid-recon.
+                _nudge_threshold_met = (
+                    is_post_vuln_context or self._no_tool_iterations >= 2
+                )
+                if (has_hallucination_risk or has_fake_cmd_block) and not tool_calls_acc:
+                    if has_fake_cmd_block:
+                        # Code block hallucination — always inject a strong nudge
+                        logger.warning(
+                            "Bash code block detected in text response (iteration=%d) — "
+                            "LLM wrote a command instead of calling execute{}",
+                            self.state.iteration,
+                        )
+                        self.state.conversation.append({
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM: TOOL CALL REQUIRED — DO NOT WRITE COMMANDS AS TEXT]\n"
+                                "You wrote a shell command in a code block instead of calling a tool.\n"
+                                "Writing ```bash ... ``` does NOT execute the command.\n"
+                                "You MUST call the execute tool to run commands:\n"
+                                "  execute({\"command\": \"your_command_here\"})\n"
+                                "Call the tool NOW. Do not repeat the code block."
+                            ),
+                        })
+                        content_acc = ""  # discard hallucinated text from history
+                    elif is_post_vuln_context:
                         # STRICT MODE: After vulnerability found, tool calls are MANDATORY
                         logger.warning(
-                            f"Post-vulnerability hallucination detected in EXPLOIT phase. "
-                            f"Forcing tool call requirement (phase={is_exploit_phase}, vulns={len(self._session.vulnerabilities) if self._session else 0})"
+                            "Post-vulnerability hallucination detected "
+                            "(phase=exploit=%s, vulns=%d, no_tool_iters=%d)",
+                            is_exploit_phase,
+                            len(self._session.vulnerabilities) if self._session else 0,
+                            self._no_tool_iterations,
                         )
-                        self.state.conversation.append(
-                            {
-                                "role": "system",
-                                "content": (
-                                    "[SYSTEM: MANDATORY TOOL CALL - EXPLOIT PHASE]\n"
-                                    "A vulnerability was found. You MUST now prove it works:\n"
-                                    "1. Call execute, browser_action, or quick_fuzz\n"
-                                    "2. Show the actual response/output as evidence\n"
-                                    "3. DO NOT write analysis-only text\n"
-                                    "TOOL EXECUTION IS MANDATORY. Do not skip this step."
-                                ),
-                            }
+                        self.state.conversation.append({
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM: MANDATORY TOOL CALL - EXPLOIT PHASE]\n"
+                                "A vulnerability was found. You MUST now prove it works:\n"
+                                "1. Call execute, browser_action, or quick_fuzz\n"
+                                "2. Show the actual response/output as evidence\n"
+                                "3. DO NOT write analysis-only text\n"
+                                "TOOL EXECUTION IS MANDATORY. Do not skip this step."
+                            ),
+                        })
+                    elif _nudge_threshold_met:
+                        logger.warning(
+                            "Hallucination signal detected with no tool call "
+                            "(iteration=%d, no_tool_iters=%d)",
+                            self.state.iteration,
+                            self._no_tool_iterations,
                         )
-                    else:
-                        # Normal mode: warn and let model self-correct
-                        self.state.conversation.append(
-                            {
-                                "role": "system",
-                                "content": (
-                                    "[SYSTEM: HALLUCINATION WARNING]\n"
-                                    "Your response contains claims without tool execution. "
-                                    "You have NO data unless a tool actually returned it. "
-                                    "You MUST call a tool to verify any findings. "
-                                    "Do NOT fabricate results."
-                                ),
-                            }
-                        )
+                        self.state.conversation.append({
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM: HALLUCINATION WARNING]\n"
+                                "Your response contains claims without tool execution. "
+                                "You have NO data unless a tool actually returned it. "
+                                "You MUST call a tool to verify any findings. "
+                                "Do NOT fabricate results."
+                            ),
+                        })
 
                 # Fallback: some models emit tool calls as text inside
                 # <tool_call> tags
@@ -1024,44 +1095,56 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         content_acc = self._TOOL_CALL_RE.sub(
                             "", content_acc).strip()
 
-                # --- TEXT-ONLY RESPONSE DETECTION IN EXPLOIT PHASE ---
-                # If we're in EXPLOIT phase and got text-only response (no tools),
-                # detect if it's analysis-only hallucination
-                is_exploit_phase = self.pipeline and self.pipeline.get_current_phase(
-                ) == PipelinePhase.EXPLOIT
-                if is_exploit_phase and not tool_calls_acc and content_acc.strip():
-                    # Check if response is analysis-only (claims without verification)
-                    analysis_keywords = [
+                # --- TEXT-ONLY RESPONSE DETECTION (ALL PHASES) ---
+                # After 2+ consecutive no-tool iterations, if the response looks like
+                # planning/analysis text, discard it and force the LLM to call a tool.
+                # Previously this only triggered in EXPLOIT phase — extended to all
+                # phases because hallucination also occurs during RECON and ANALYSIS.
+                if not tool_calls_acc and content_acc.strip() and self._no_tool_iterations >= 2:
+                    # Check if response is analysis/planning text (not a final answer)
+                    _planning_keywords = [
+                        "i will", "i'll", "let me", "next step",
+                        "i should", "i need to", "i'm going to",
+                        "first, i", "to do this", "i would",
+                    ]
+                    _analysis_keywords = [
                         "analysis", "shows", "found", "detected",
                         "i have", "based on", "my analysis", "the results",
-                        "might", "could be", "appears", "potentially"
+                        "might", "could be", "appears", "potentially",
                     ]
-                    is_analysis_text = any(
-                        keyword in content_acc.lower() for keyword in analysis_keywords
+                    _all_no_tool_keywords = _planning_keywords + _analysis_keywords
+                    content_lower = content_acc.lower()
+                    is_no_tool_text = any(
+                        kw in content_lower for kw in _all_no_tool_keywords
                     )
-
-                    # Short text = likely plan/analysis
-                    if is_analysis_text and len(content_acc) < 500:
+                    current_phase_name = (
+                        self.pipeline.get_current_phase().value
+                        if self.pipeline else "UNKNOWN"
+                    )
+                    if is_no_tool_text:
                         logger.warning(
-                            "Text-only analysis response in EXPLOIT phase detected. "
-                            "Forcing tool execution."
+                            "Text-only response for %d consecutive iterations "
+                            "in %s phase — discarding and forcing tool call.",
+                            self._no_tool_iterations,
+                            current_phase_name,
                         )
                         self.state.conversation.append({
                             "role": "system",
                             "content": (
-                                "[SYSTEM: TEXT-ONLY NOT ALLOWED IN EXPLOIT]\n"
-                                "You provided only analysis/planning text without executing tools.\n"
-                                "In EXPLOIT phase, you MUST:\n"
-                                "1. Execute a tool (execute, browser_action, quick_fuzz, etc.)\n"
-                                "2. Show the actual output\n"
-                                "3. Base your next steps on REAL evidence\n"
-                                "DO NOT provide analysis-only responses. Call a tool NOW."
-                            )
+                                f"[SYSTEM: TEXT-ONLY RESPONSES NOT ALLOWED]\n"
+                                f"You have provided {self._no_tool_iterations} consecutive "
+                                f"responses without calling any tool.\n"
+                                f"Current phase: {current_phase_name}\n"
+                                f"You MUST call a tool NOW:\n"
+                                f"- RECON phase: use execute (nmap, ffuf, httpx, etc.)\n"
+                                f"- ANALYSIS phase: use execute or browser_action\n"
+                                f"- EXPLOIT phase: use execute, quick_fuzz, or browser_action\n"
+                                f"Do NOT plan or describe — EXECUTE."
+                            ),
                         })
-                        # Don't process this response - set flag to regenerate
+                        # Discard the planning text — do not add to conversation history
                         tool_calls_acc = []
                         content_acc = ""
-                        # Continue to next iteration without adding to message history
 
                 _has_task_complete = "[TASK_COMPLETE]" in content_acc
                 content_acc = content_acc.replace(
@@ -1140,7 +1223,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         deduped_tool_calls.append(tc)
                 tool_calls_acc = deduped_tool_calls
 
-                last_iteration_had_tools = bool(tool_calls_acc)
+                if tool_calls_acc:
+                    self._no_tool_iterations = 0
+                else:
+                    self._no_tool_iterations += 1
 
                 if not content_acc.strip():
                     tool_names_str = ", ".join(

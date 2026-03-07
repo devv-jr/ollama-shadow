@@ -8,6 +8,7 @@ from airecon.proxy.agent.session import (
     _extract_injection_points,
     _guess_injection_type,
     _merge_injection_points,
+    _normalize_url,
 )
 from airecon.proxy.agent.formatters import _load_port_hints, _load_tech_hints
 
@@ -235,3 +236,119 @@ class TestLoadHints:
         hints = _load_port_hints()
         # port_correlations.json covers infra ports; SSH (22) and FTP (21) are always present
         assert 22 in hints or 21 in hints, "Expected at least port 21 or 22 in port hints"
+
+
+# ---------------------------------------------------------------------------
+# Issue #16: URL normalization
+# ---------------------------------------------------------------------------
+
+class TestNormalizeUrl:
+
+    def test_scheme_lowercased(self):
+        assert _normalize_url("HTTPS://example.com/path").startswith("https://")
+
+    def test_host_lowercased(self):
+        result = _normalize_url("https://EXAMPLE.COM/path")
+        assert "example.com" in result
+        assert "EXAMPLE.COM" not in result
+
+    def test_trailing_slash_stripped(self):
+        result = _normalize_url("https://example.com/api/users/")
+        assert not result.endswith("/api/users/")
+        assert result.endswith("/api/users")
+
+    def test_root_path_preserved(self):
+        """Root path '/' must not be stripped to empty string."""
+        result = _normalize_url("https://example.com/")
+        assert result == "https://example.com"  # or "https://example.com/"
+
+    def test_fragment_stripped(self):
+        result = _normalize_url("https://example.com/page#section")
+        assert "#section" not in result
+
+    def test_query_params_sorted(self):
+        result = _normalize_url("https://example.com/search?z=last&a=first")
+        assert result == "https://example.com/search?a=first&z=last"
+
+    def test_identical_urls_normalize_equally(self):
+        url1 = _normalize_url("https://Example.COM/api/users/?ref=1#frag")
+        url2 = _normalize_url("https://example.com/api/users?ref=1")
+        assert url1 == url2
+
+    def test_malformed_url_returned_unchanged(self):
+        bad = "not-a-url-at-all"
+        result = _normalize_url(bad)
+        assert result == bad
+
+    def test_query_string_blank_values_preserved(self):
+        result = _normalize_url("https://example.com/search?q=&lang=en")
+        assert "q=" in result
+        assert "lang=en" in result
+
+
+class TestExtractInjectionPointUrlNormalization:
+    """Issue #16: injection point URLs must be normalized for consistent dedup."""
+
+    def test_uppercase_host_normalized_in_injection_point(self):
+        """URL with uppercase host must produce lowercase host in injection point."""
+        points = _extract_injection_points("https://EXAMPLE.COM/api?id=1")
+        assert len(points) >= 1
+        for pt in points:
+            assert "EXAMPLE.COM" not in pt["url"], (
+                f"Host not lowercased in injection point url: {pt['url']}"
+            )
+
+    def test_trailing_slash_stripped_in_injection_point(self):
+        """URL with trailing slash must produce no trailing slash in injection point url."""
+        points = _extract_injection_points("https://example.com/api/users/?id=5")
+        for pt in points:
+            # path in url should not end with slash (unless root)
+            from urllib.parse import urlparse
+            path = urlparse(pt["url"]).path
+            if path != "/":
+                assert not path.endswith("/"), (
+                    f"Trailing slash found in injection point url path: {pt['url']}"
+                )
+
+    def test_trailing_slash_and_no_trailing_slash_dedup_correctly(self):
+        """URLs differing only by trailing slash must produce the same dedup key."""
+        pts_with_slash = _extract_injection_points("https://example.com/api/users/?id=5")
+        pts_without_slash = _extract_injection_points("https://example.com/api/users?id=5")
+
+        if pts_with_slash and pts_without_slash:
+            url_with = pts_with_slash[0]["url"]
+            url_without = pts_without_slash[0]["url"]
+            assert url_with == url_without, (
+                f"URLs should normalize to same value:\n  with slash: {url_with}\n  without: {url_without}"
+            )
+
+    def test_uppercase_host_dedup_in_merge(self):
+        """Injection points with same URL but different host casing must dedup."""
+        pts1 = _extract_injection_points("https://EXAMPLE.COM/api?id=1")
+        pts2 = _extract_injection_points("https://example.com/api?id=1")
+
+        session_points: list = []
+        _merge_injection_points(session_points, pts1)
+        before = len(session_points)
+        _merge_injection_points(session_points, pts2)
+        after = len(session_points)
+
+        assert after == before, (
+            f"URL case variants produced duplicate injection point "
+            f"(before={before}, after={after}): {session_points}"
+        )
+
+    def test_fragment_url_dedup_in_merge(self):
+        """URLs with and without fragment must produce the same injection point."""
+        pts1 = _extract_injection_points("https://example.com/search?q=test#section")
+        pts2 = _extract_injection_points("https://example.com/search?q=test")
+
+        session_points: list = []
+        _merge_injection_points(session_points, pts1)
+        before = len(session_points)
+        _merge_injection_points(session_points, pts2)
+        after = len(session_points)
+
+        assert after == before, (
+            f"Fragment-vs-no-fragment produced duplicate injection point"
+        )

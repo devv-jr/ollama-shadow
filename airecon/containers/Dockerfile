@@ -129,13 +129,11 @@ USER root
 RUN cp -n /home/pentester/go/bin/* /usr/local/bin/ 2>/dev/null || true
 
 # ── Rust tools (pre-compiled binaries, optional — build continues if download fails) ──
-RUN (curl -fsL "https://github.com/Sh1Yo/x8/releases/latest/download/x8-linux.tar.gz" -o x8.tar.gz && \
-    tar -xzf x8.tar.gz && chmod +x x8 && mv x8 /usr/local/bin/ && rm -f x8.tar.gz) || \
-    (curl -fsL "https://github.com/Sh1Yo/x8/releases/latest/download/x86_64-unknown-linux-musl.tar.gz" -o x8.tar.gz && \
+RUN (curl -fsL "https://github.com/Sh1Yo/x8/releases/download/v4.3.0/x86_64-linux-x8.gz" -o x8.tar.gz && \
     tar -xzf x8.tar.gz && chmod +x x8 && mv x8 /usr/local/bin/ && rm -f x8.tar.gz) || \
     echo "[WARN] x8 installation skipped (release asset not found)"
-RUN (curl -fsL "https://gitlab.com/api/v4/projects/33695681/packages/generic/nrich/latest/nrich_latest_x86_64-unknown-linux-musl.tar.gz" -o nrich.tar.gz && \
-    tar -xzf nrich.tar.gz && chmod +x nrich && mv nrich /usr/local/bin/ && rm -f nrich.tar.gz) || \
+RUN (curl -fsL "https://gitlab.com/api/v4/projects/33695681/packages/generic/nrich/0.4.2/nrich-linux-x86_64" -o nrich && \
+    chmod +x nrich && mv nrich /usr/local/bin/ && rm -f nrich) || \
     echo "[WARN] nrich installation skipped (release asset not found)"
 
 # ── Kiterunner (pre-compiled binary) ──

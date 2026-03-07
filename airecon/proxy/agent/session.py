@@ -96,7 +96,14 @@ def _extract_injection_points(url: str) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
     try:
         p = urlparse(url)
-        base = f"{p.scheme}://{p.netloc}{p.path}"
+        # Normalize base so dedup keys are consistent regardless of case or
+        # trailing slash variations (e.g. /api/users/ == /api/users).
+        base = urlunparse((
+            p.scheme.lower(),
+            p.netloc.lower(),
+            p.path.rstrip("/") or "/",
+            "", "", "",
+        ))
 
         # Query string parameters
         for param, value in parse_qsl(p.query, keep_blank_values=True):

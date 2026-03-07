@@ -258,6 +258,83 @@ ToolMessage LoadingIndicator {
 }
 
 /* ═══════════════════════════════════════════
+   SubAgentBlock — collapsible sub-agent card
+   ═══════════════════════════════════════════ */
+
+SubAgentBlock {
+    margin: 1 0 1 1;
+    padding: 1 1 1 1;
+    background: #0d1117;
+    border-left: thick #a78bfa;
+    height: auto;
+}
+
+SubAgentBlock.running {
+    border-left: thick #a78bfa;
+    background: #0d1117;
+}
+
+SubAgentBlock.done {
+    border-left: thick #2a1f4a;
+    background: transparent;
+    padding: 0 0 0 1;
+    margin: 0 0 0 1;
+}
+
+SubAgentBlock.error {
+    border-left: thick #ef4444;
+    background: #160808;
+}
+
+SubAgentBlock.running:hover {
+    background: #111420;
+}
+
+SubAgentBlock.done:hover {
+    background: #0d1117;
+}
+
+.subagent-header {
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+
+.subagent-summary {
+    height: 1;
+    margin: 0;
+    padding: 0;
+}
+
+SubAgentBlock LoadingIndicator {
+    height: 1;
+    margin: 0 0 0 1;
+    color: #a78bfa;
+}
+
+.subagent-body {
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+
+.subagent-text {
+    height: auto;
+    max-height: 25;
+    background: transparent;
+    border: none;
+    border-left: solid #21262d;
+    margin: 1 0 0 1;
+    padding: 0 0 0 1;
+    color: #c9d1d9;
+}
+
+/* Nested ToolMessages inside a SubAgentBlock get tighter margins */
+SubAgentBlock ToolMessage {
+    margin: 0 0 0 1;
+}
+
+/* ═══════════════════════════════════════════
    Streaming Messages
    ═══════════════════════════════════════════ */
 

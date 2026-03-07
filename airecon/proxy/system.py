@@ -33,18 +33,30 @@ _CTF_INDICATORS_TARGET = (
     "127.0.0.1",
     "::1",
 )
-_CTF_INDICATORS_MSG = (
-    "ctf",
-    "flag",
-    "flag{",
-    "capture the flag",
-    "challenge",
-    "xbow",
-    "benchmark",
-    "hacksim",
-)
 _PRIVATE_IP_RE = re.compile(
     r"\b(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+):\d+\b"
+)
+
+# Whole-word regex for CTF message detection.
+# Using \b boundaries prevents false positives from common security terms:
+#   "flag"      → would match "feature flags", "--flag param", "red flags"
+#   "challenge" → would match "challenging", "challenged"
+#   "benchmark" → would match "benchmark" only (safe as whole word)
+# "flag" is intentionally dropped — "flag{" (CTF flag format) is kept instead.
+# Only explicit, unambiguous CTF-specific terms are matched.
+_CTF_MSG_RE = re.compile(
+    r"(?:"
+    r"\bctf\b"
+    r"|flag\{"            # CTF flag format: flag{...} — no false positives
+    r"|\bcapture the flag\b"
+    r"|\bxbow\b"
+    r"|\bhacksim\b"
+    r"|\bhtb\b"           # HackTheBox shorthand
+    r"|\bpicoctf\b"
+    r"|\broot\.txt\b"     # common CTF objective
+    r"|\buser\.txt\b"     # common CTF objective (HackTheBox)
+    r")",
+    re.IGNORECASE,
 )
 
 
@@ -55,7 +67,11 @@ def _is_ctf_target(target: str | None = None,
     Heuristics (any one match = CTF mode):
     - Target string contains localhost / 127.0.0.1 / ::1
     - Target matches private-IP:PORT pattern (single exposed service)
-    - User message contains ctf/flag/xbow/challenge/benchmark keywords
+    - User message contains unambiguous CTF-specific keywords (whole-word match)
+
+    NOTE: "challenge", "benchmark", and bare "flag" are intentionally excluded
+    from message detection to prevent false positives during normal recon
+    (e.g. "challenging target", "run a benchmark", "feature flags").
     """
     if target:
         t_lower = target.lower()
@@ -64,10 +80,8 @@ def _is_ctf_target(target: str | None = None,
         # Private IP with explicit port ⇒ single-service CTF style
         if _PRIVATE_IP_RE.search(target):
             return True
-    if user_message:
-        m_lower = user_message.lower()
-        if any(ind in m_lower for ind in _CTF_INDICATORS_MSG):
-            return True
+    if user_message and _CTF_MSG_RE.search(user_message):
+        return True
     return False
 
 

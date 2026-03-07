@@ -150,7 +150,17 @@ class Config:
                     current_config.update(user_config)
             except Exception as e:
                 logger.error(
-                    f"Failed to load config from {config_file}: {e}. Using default configuration.")
+                    "Failed to load config from %s: %s. "
+                    "Resetting to defaults and rewriting config file.",
+                    config_file, e,
+                )
+                # Rewrite corrupt config with defaults so next startup is clean
+                try:
+                    with open(config_file, "w") as f:
+                        json.dump(DEFAULT_CONFIG, f, indent=4)
+                    logger.info("Config file reset to defaults at %s", config_file)
+                except Exception as write_err:
+                    logger.error("Could not rewrite config file: %s", write_err)
         else:
             # Only generate default if using the default path
             if config_path is None:
@@ -195,6 +205,7 @@ class Config:
 
         - Unknown keys (old/removed fields) are silently ignored.
         - Missing keys fall back to DEFAULT_CONFIG values.
+        - Wrong-typed values are coerced to the expected type (e.g. "3000" → 3000).
 
         This prevents cryptic dataclass errors when users have outdated
         config files that contain fields no longer in the dataclass, or
@@ -209,6 +220,34 @@ class Config:
                 "Config: ignoring unknown fields (possibly from an older config): %s",
                 ", ".join(sorted(unknown)),
             )
+
+        # Type coercion: ensure each value matches the type of its default.
+        for key in list(merged):
+            default_val = DEFAULT_CONFIG.get(key)
+            if default_val is None:
+                continue
+            expected_type = type(default_val)
+            val = merged[key]
+            if not isinstance(val, expected_type):
+                try:
+                    if expected_type is bool:
+                        if isinstance(val, str):
+                            merged[key] = val.lower() in ("true", "1", "yes")
+                        else:
+                            merged[key] = bool(val)
+                    else:
+                        merged[key] = expected_type(val)
+                    logger.warning(
+                        "Config: coerced '%s' from %s to %s",
+                        key, type(val).__name__, expected_type.__name__,
+                    )
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "Config: could not coerce '%s' value %r to %s — using default %r",
+                        key, val, expected_type.__name__, default_val,
+                    )
+                    merged[key] = default_val
+
         return cls(**merged)
 
 
