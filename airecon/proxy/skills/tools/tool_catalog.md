@@ -110,6 +110,13 @@ If a tool is NOT installed, install it immediately. Do NOT skip the task.
     inql (pipx), gqlspection (pipx)
     python3 /home/pentester/tools/GraphQLmap/graphqlmap.py
 
+## Mobile App Security (Android/iOS)
+
+    Android static: apktool, jadx, apksigner, apkleaks, apkid
+    Android dynamic: adb, frida-tools, objection (requires emulator/device runtime)
+    iOS static (headless): unzip, strings, plist parsing, radare2
+    iOS dynamic: requires external environment; not fully supported inside Docker-only engine
+
 ## CORS Testing
 
     python3 /home/pentester/tools/Corsy/corsy.py

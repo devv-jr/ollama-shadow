@@ -1,3 +1,43 @@
+## INSTALL STRATEGY (HEADLESS + SKILL-AWARE)
+
+Before running recon/exploit workflows, pick a toolchain profile and verify tools first.
+
+### STEP 0 — Pick Toolchain Profile
+
+  [Web/API baseline]
+    nmap, httpx, katana, ffuf, nuclei, sqlmap, dalfox
+
+  [Source review / SAST]
+    semgrep, bandit, trivy, eslint, jshint
+
+  [Internal / AD]
+    netexec, smbclient, enum4linux-ng, impacket, kerbrute
+
+  [CTF binary/reverse]
+    checksec, strings, objdump, radare2, ropper, pwntools
+
+  [Mobile Android APK]
+    apktool, jadx, apksigner, apkleaks, apkid, adb, frida-tools, objection
+
+  [Mobile iOS IPA (headless static)]
+    unzip, plistutil/plutil, strings, radare2, otool (if available)
+    NOTE: full iOS dynamic testing is usually outside this Docker runtime.
+
+### STEP 0.1 — Verify Before Install
+
+  Use this for every required binary:
+    which <tool> && (<tool> --version || <tool> --help)
+
+  If missing, install immediately using the protocol below.
+
+### STEP 0.2 — GUI Constraint
+
+  If a workflow requires GUI-only tooling, switch to CLI alternatives first.
+  Examples:
+    - jadx-gui -> jadx (CLI output dir)
+    - Burp GUI -> caido-cli / curl replay / http framework
+    - MobSF web UI -> static CLI chain (apktool + jadx + apkleaks + apkid)
+
 ## TOOL MISSING — AUTO-INSTALL PROTOCOL:
 
 When a command returns "command not found" or `which <tool>` returns empty:
@@ -142,6 +182,15 @@ When apt/pip/go install fails, or you don't know where the tool is published:
     fierce          → sudo apt-get install -y fierce
     dnsgen          → pip install dnsgen --break-system-packages
     padbuster       → sudo apt-get install -y padbuster
+    apktool         → sudo apt-get install -y apktool
+    jadx            → sudo apt-get install -y jadx
+    apksigner       → sudo apt-get install -y apksigner
+    adb             → sudo apt-get install -y adb fastboot  OR  sudo apt-get install -y android-sdk-platform-tools
+    apkleaks        → pip install apkleaks --break-system-packages
+    apkid           → pip install apkid --break-system-packages
+    frida-tools     → pip install frida-tools --break-system-packages
+    objection       → pip install objection --break-system-packages
+    mobsf           → docker pull opensecurity/mobile-security-framework-mobsf && docker run -it -p 8000:8000 opensecurity/mobile-security-framework-mobsf  (if Docker-in-Docker available)
     oletools        → pip install oletools --break-system-packages
     stegoveritas    → pip install stegoveritas --break-system-packages
     zsteg           → sudo gem install zsteg

@@ -6,6 +6,8 @@ import re
 import logging
 from typing import Any
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
 from .config import get_workspace_root
 
 _CVE_RE = re.compile(r'^CVE-\d{4}-\d{4,}$', re.IGNORECASE)
@@ -97,6 +99,98 @@ def _validate_cvss_parameters(**kwargs: str) -> list[str]:
     return validation_errors
 
 
+def _sanitize_target_name(value: str) -> str:
+    """Normalize target/workspace token into a safe directory name."""
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("._-")
+    return cleaned
+
+
+def _extract_target_token(raw_target: str) -> str:
+    """Extract a meaningful target token from URL/domain/path-like input."""
+    raw = (raw_target or "").strip()
+    if not raw:
+        return ""
+
+    # Handle @/path and [file:xyz] placeholder strings.
+    if raw.startswith("@"):
+        raw = raw[1:]
+    if raw.startswith("[file:") and raw.endswith("]"):
+        raw = raw[6:-1]
+
+    # URL target → use host.
+    parsed = urlparse(raw if "://" in raw else "")
+    if parsed.netloc:
+        return parsed.netloc
+
+    # URL-like input without scheme (example.com/path) → use host segment.
+    if "/" in raw and not raw.startswith(("/", ".", "@")):
+        host_candidate = raw.split("/", 1)[0]
+        host_only = host_candidate.split(":", 1)[0]
+        if "." in host_only and re.fullmatch(r"[a-zA-Z0-9.-]+", host_only):
+            return host_only
+
+    # Workspace path (/workspace/<target>/...) → infer target segment.
+    if raw.startswith("/workspace/"):
+        parts = [p for p in raw.split("/") if p]
+        if len(parts) >= 2:
+            return parts[1]
+
+    # Absolute or relative path input → use directory name / file stem.
+    if "/" in raw or raw.startswith("."):
+        path_like = Path(raw)
+        # For files, prefer stem so challenge.exe -> challenge
+        if path_like.suffix:
+            return path_like.stem or path_like.name
+        return path_like.name or path_like.stem
+
+    # Plain host/token input.
+    return raw
+
+
+def _is_filesystem_like_target(raw_target: str) -> bool:
+    raw = (raw_target or "").strip()
+    if not raw:
+        return False
+    return (
+        raw.startswith("@/")
+        or raw.startswith("/workspace/")
+        or raw.startswith("/")
+        or raw.startswith("[file:")
+        or raw.startswith("./")
+        or raw.startswith("../")
+    )
+
+
+def _resolve_report_workspace_target(target: str, active_target: str | None) -> str:
+    """Resolve final workspace target folder for vulnerability report output.
+
+    Rules:
+    - Use active target when input looks like @/file or filesystem path.
+    - Preserve domain normalization for subdomain vs parent domain.
+    - Never return empty; fallback to 'unknown_target'.
+    """
+    target_token = _extract_target_token(target)
+    target_clean = _sanitize_target_name(target_token)
+
+    active_clean = ""
+    if active_target:
+        active_token = _extract_target_token(str(active_target))
+        active_clean = _sanitize_target_name(active_token)
+
+    if active_clean:
+        # File/folder reference contexts should always store in active workspace.
+        if _is_filesystem_like_target(target) or not target_clean:
+            return active_clean
+        # Keep parent-domain workspace for subdomains.
+        if target_clean != active_clean and (
+            target_clean.endswith("." + active_clean)
+            or active_clean.endswith("." + target_clean)
+        ):
+            return active_clean
+
+    return target_clean or active_clean or "unknown_target"
+
+
 def create_vulnerability_report(
     title: str,
     description: str,
@@ -172,32 +266,10 @@ def create_vulnerability_report(
     else:
         cvss_score, severity, cvss_vector = 0.0, "n/a", ""
 
-    # Clean target for folder name
-    target_clean = str(target).replace(
-        "https://",
-        "").replace(
-        "http://",
-        "").split("/")[0]
-    target_clean = re.sub(r'[^a-zA-Z0-9\.\-_]', '_', target_clean)
-
-    # Normalize subdomain to root target: if the LLM passed sub.target.com but the
-    # active target is target.com, save the report under
-    # target.com/vulnerabilities/
-    if _active_target:
-        active_clean = str(_active_target).replace(
-            "https://",
-            "").replace(
-            "http://",
-            "").split("/")[0]
-        active_clean = re.sub(r'[^a-zA-Z0-9\.\-_]', '_', active_clean)
-        if target_clean != active_clean and (
-            target_clean.endswith(
-                "." +
-                active_clean) or active_clean.endswith(
-                "." +
-                target_clean)
-        ):
-            target_clean = active_clean
+    target_clean = _resolve_report_workspace_target(
+        target=target,
+        active_target=_active_target,
+    )
 
     if not _workspace_root:
         _workspace_root = str(get_workspace_root())
@@ -272,7 +344,7 @@ def create_vulnerability_report(
         md_content += f"\n## Reference\n**CVE**: {cve}\n"
 
     try:
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(md_content)
 
         result: dict[str, Any] = {
