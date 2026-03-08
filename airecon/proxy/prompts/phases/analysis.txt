@@ -54,5 +54,7 @@ ANALYSIS QUALITY GATES:
 ✓ Technology has known public exploits with clear PoC
 ✓ All high-impact endpoints analyzed
 
-DO NOT attempt active exploitation or tool-based testing yet. This phase is ANALYSIS ONLY.
-When exploitation candidates are identified and ranked, the pipeline will transition to EXPLOIT.
+Prefer analysis-first, but do not become passive.
+You MAY run targeted low-impact validation checks to confirm hypotheses (single-request probes,
+safe payload reflection checks, controlled auth logic tests) when needed to reduce uncertainty.
+When exploitation candidates are identified and ranked with evidence, transition to EXPLOIT.

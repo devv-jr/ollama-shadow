@@ -71,6 +71,37 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
     # Max number of times the same CTF-local challenge can be seen before CTF
     # mode kicks in
     _CTF_MAX_ITERATIONS = 150
+    _PHASE_OBJECTIVES: dict[str, list[str]] = {
+        "RECON": [
+            "Enumerate target surface (domains/hosts/services)",
+            "Validate live hosts and open ports",
+            "Persist recon artifacts in output/ files",
+        ],
+        "ANALYSIS": [
+            "Map technologies, endpoints, and parameters",
+            "Identify meaningful injection points or misconfigurations",
+            "Correlate findings into exploit candidates",
+        ],
+        "EXPLOIT": [
+            "Validate exploitability with real tool output",
+            "Capture PoC evidence and affected assets",
+            "Avoid duplicate commands and pivot when blocked",
+        ],
+        "REPORT": [
+            "Create vulnerability reports for confirmed findings",
+            "Document impact and remediation guidance",
+            "Mark task complete when evidence is sufficient",
+        ],
+    }
+    _EXPLOIT_HEAVY_TOOLS = frozenset({
+        "quick_fuzz", "advanced_fuzz", "deep_fuzz",
+        "schemathesis_fuzz", "create_vulnerability_report",
+    })
+    _RECON_BIN_HINTS = (
+        "subfinder", "amass", "assetfinder", "findomain",
+        "httpx", "nmap", "masscan", "naabu", "dnsx",
+        "ffuf", "dirsearch", "gobuster", "katana", "hakrawler",
+    )
 
     def __init__(self, ollama: OllamaClient, engine: DockerEngine) -> None:
         self.ollama = ollama
@@ -88,6 +119,9 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         # Tracks consecutive iterations where LLM returned no tool calls.
         # Used to escalate nudges when the model is stuck in text-only mode.
         self._no_tool_iterations: int = 0
+        self._stagnation_iterations: int = 0
+        self._recent_tool_names: list[str] = []
+        self._last_evidence_count: int = 0
         self._session: SessionData | None = None
         self._pending_output_merges: dict[str, list[str]] = {}
         # Tools blocked for this agent (e.g. depth control)
@@ -238,7 +272,11 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         if self._initial_messages:
             self.state.conversation = list(self._initial_messages)
         self._executed_tool_counts.clear()
+        self._executed_cmd_hashes.clear()
         self._last_output_file = None
+        self._stagnation_iterations = 0
+        self._recent_tool_names.clear()
+        self._last_evidence_count = 0
         # Create a new session on reset (keeps the old one on disk)
         self._session = SessionData(target="")
         self.pipeline = PipelineEngine(self._session)
@@ -334,6 +372,9 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 "[SYSTEM: WORKSPACE",
                 "[SYSTEM: ACTIVE_TARGET",
                 "[SYSTEM: ADDITIONAL_TARGETS",
+                "[SYSTEM: OBJECTIVE FOCUS",
+                "[SYSTEM: PHASE GATE",
+                "[SYSTEM: AGGRESSIVE EXPLORATION",
             )
             self.state.conversation = [
                 msg
@@ -443,6 +484,9 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             self._stop_requested = False
             self._consecutive_failures = 0
             self._no_tool_iterations = 0
+            self._stagnation_iterations = 0
+            self._recent_tool_names = []
+            self._last_evidence_count = len(self.state.evidence_log)
             # NOTE: Do NOT clear _executed_tool_counts here — dedup must persist
             # across messages within the same session. It is only cleared in
             # reset().
@@ -456,6 +500,44 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     return
 
                 self.state.increment_iteration()
+                current_phase = self._get_current_phase()
+                self._sync_phase_objectives(current_phase)
+                self._update_objectives_from_session(current_phase)
+
+                if (
+                    self.state.iteration == 1
+                    or self.state.iteration % 3 == 0
+                    or self._no_tool_iterations >= 1
+                ):
+                    self.state.conversation = [
+                        msg
+                        for msg in self.state.conversation
+                        if not msg.get("content", "").startswith(
+                            "[SYSTEM: OBJECTIVE FOCUS"
+                        )
+                    ]
+                    focus_ctx = self.state.build_focus_context(
+                        current_phase.value,
+                        max_objectives=4,
+                        max_evidence=6,
+                    )
+                    if focus_ctx:
+                        self.state.conversation.append(
+                            {"role": "system", "content": focus_ctx}
+                        )
+
+                explore_ctx = self._build_exploration_directive(current_phase)
+                if explore_ctx:
+                    self.state.conversation = [
+                        msg
+                        for msg in self.state.conversation
+                        if not msg.get("content", "").startswith(
+                            "[SYSTEM: AGGRESSIVE EXPLORATION"
+                        )
+                    ]
+                    self.state.conversation.append(
+                        {"role": "system", "content": explore_ctx}
+                    )
 
                 # --- PLANNING INJECTION (iteration 1 only) ---
                 if self.state.iteration == 1:
@@ -821,6 +903,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 # Context window — full size by default; reduced to small on
                 # VRAM crash retry
                 adaptive_num_ctx = cfg.ollama_num_ctx
+                adaptive_temperature = self._get_iteration_temperature(cfg)
 
                 # --- VRAM-CRASH RECOVERY LOOP ---
                 # Attempt the LLM stream up to 2 times.
@@ -836,7 +919,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             tools=self._tools_ollama,
                             options={
                                 "num_ctx": adaptive_num_ctx,
-                                "temperature": cfg.ollama_temperature,
+                                "temperature": adaptive_temperature,
                                 "num_predict": cfg.ollama_num_predict,
                             },
                             think=cfg.ollama_enable_thinking
@@ -1308,6 +1391,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             self.state.active_target,
                             self._no_tool_iterations,
                         )
+                        self._stagnation_iterations += 1
                         continue
 
                     # Non-recon text-only response: treat as final assistant answer.
@@ -1641,6 +1725,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             "tool_counts": self.state.tool_counts,
                         },
                     )
+                    self._track_tool_usage(tool_name)
 
                     if success:
                         self._consecutive_failures = 0
@@ -1662,6 +1747,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             tool_name)  # type: ignore[attr-defined]
                         if phase_warn:
                             content_str = phase_warn + "\n\n" + content_str
+                    phase_gate_note = self._build_phase_gate_note(
+                        tool_name, success)
+                    if phase_gate_note:
+                        content_str = phase_gate_note + "\n\n" + content_str
 
                     # --- PHASE 1 ARTIFACT ENFORCEMENT ---
                     if success and tool_name in (
@@ -1690,6 +1779,25 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                     self._session, parsed_out, raw_command
                                 )
                                 save_session(self._session)
+
+                    phase_after_tool = self._get_current_phase()
+                    self._record_evidence_from_result(
+                        phase=phase_after_tool.value,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=result,
+                        success=success,
+                        output_file=output_file,
+                    )
+                    self._update_objectives_from_tool(
+                        phase_after_tool,
+                        tool_name,
+                        arguments,
+                        success,
+                        result,
+                        output_file,
+                    )
+                    self._update_objectives_from_session(phase_after_tool)
 
                     if not success and self._consecutive_failures >= 3:
                         alt_suggestion = self._suggest_alternative_tool(
@@ -1748,6 +1856,8 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     self._append_tool_result(
                         tool_name, content_str, success, tc.get("id")
                     )
+
+                self._refresh_exploration_state()
 
                 # Persist session state incrementally after every tool
                 # execution
@@ -2044,6 +2154,439 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         # Generic fallback
         return "Try using a completely different tool. Run 'which <tool>' to verify availability."
 
+    @staticmethod
+    def _cfg_bool(cfg: Any, key: str, default: bool) -> bool:
+        try:
+            val = getattr(cfg, key, default)
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.lower() in ("1", "true", "yes", "on")
+            return bool(val)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _cfg_int(cfg: Any, key: str, default: int) -> int:
+        try:
+            return int(getattr(cfg, key, default))
+        except Exception:
+            return default
+
+    @staticmethod
+    def _cfg_float(cfg: Any, key: str, default: float) -> float:
+        try:
+            return float(getattr(cfg, key, default))
+        except Exception:
+            return default
+
+    def _get_iteration_temperature(self, cfg: Any) -> float:
+        base_temp = self._cfg_float(cfg, "ollama_temperature", 0.15)
+        if not self._cfg_bool(cfg, "agent_exploration_mode", True):
+            return base_temp
+        exploration_temp = self._cfg_float(
+            cfg, "agent_exploration_temperature", 0.35
+        )
+        stagnation_threshold = self._cfg_int(cfg, "agent_stagnation_threshold", 2)
+        if (
+            self._stagnation_iterations >= stagnation_threshold
+            or self._consecutive_failures >= 2
+            or self._no_tool_iterations >= 1
+        ):
+            return max(base_temp, exploration_temp)
+        return base_temp
+
+    def _track_tool_usage(self, tool_name: str) -> None:
+        self._recent_tool_names.append(tool_name)
+        cfg = get_config()
+        window = max(3, self._cfg_int(cfg, "agent_tool_diversity_window", 8))
+        if len(self._recent_tool_names) > window:
+            self._recent_tool_names = self._recent_tool_names[-window:]
+
+    def _get_same_tool_streak(self) -> int:
+        if not self._recent_tool_names:
+            return 0
+        streak = 1
+        last = self._recent_tool_names[-1]
+        for tn in reversed(self._recent_tool_names[:-1]):
+            if tn != last:
+                break
+            streak += 1
+        return streak
+
+    def _refresh_exploration_state(self) -> None:
+        evidence_now = len(self.state.evidence_log)
+        if evidence_now > self._last_evidence_count:
+            self._stagnation_iterations = 0
+        else:
+            self._stagnation_iterations += 1
+        self._last_evidence_count = evidence_now
+
+    def _build_exploration_directive(self, phase: PipelinePhase) -> str:
+        cfg = get_config()
+        if not self._cfg_bool(cfg, "agent_exploration_mode", True):
+            return ""
+
+        intensity = self._cfg_float(cfg, "agent_exploration_intensity", 0.8)
+        stagnation_threshold = self._cfg_int(cfg, "agent_stagnation_threshold", 2)
+        max_same_streak = self._cfg_int(cfg, "agent_max_same_tool_streak", 3)
+        same_tool_streak = self._get_same_tool_streak()
+        window = max(3, self._cfg_int(cfg, "agent_tool_diversity_window", 8))
+        recent = self._recent_tool_names[-window:]
+        unique_recent = len(set(recent)) if recent else 0
+
+        should_push = (
+            self.state.iteration <= 2
+            or self._stagnation_iterations >= stagnation_threshold
+            or self._consecutive_failures >= 2
+            or self._no_tool_iterations >= 1
+            or same_tool_streak >= max_same_streak
+        )
+        if not should_push:
+            return ""
+
+        tactic_map: dict[PipelinePhase, list[str]] = {
+            PipelinePhase.RECON: [
+                "Run one passive and one active recon method in the same loop.",
+                "Switch discovery families: DNS -> HTTP fingerprint -> content discovery.",
+                "Prioritize unusual assets: admin panels, legacy hosts, debug endpoints.",
+            ],
+            PipelinePhase.ANALYSIS: [
+                "Mutate parameters aggressively (encoding, type confusion, boundary values).",
+                "Correlate endpoints, auth flows, and object IDs for privilege paths.",
+                "Generate at least one non-obvious hypothesis and test it immediately.",
+            ],
+            PipelinePhase.EXPLOIT: [
+                "Rotate payload families every failed attempt (SQLi -> SSTI -> auth logic).",
+                "Prefer impact proof over scanner output: state change, data access, or privilege gain.",
+                "Chain medium findings into one higher-impact attack path.",
+            ],
+            PipelinePhase.REPORT: [
+                "Convert strongest evidence into reproducible PoC steps with exact inputs.",
+                "Document what failed and why to avoid false positives.",
+            ],
+            PipelinePhase.COMPLETE: [],
+        }
+        tactics = tactic_map.get(phase, [])[:3]
+        if not tactics:
+            return ""
+
+        pressure = "HIGH" if intensity >= 0.75 else "MEDIUM"
+        lines = [
+            f"[SYSTEM: AGGRESSIVE EXPLORATION MODE — {pressure}]",
+            f"Phase={phase.value} | stagnation={self._stagnation_iterations} | "
+            f"same_tool_streak={same_tool_streak} | diversity={unique_recent}/{max(1, len(recent))}",
+            "You must avoid rigid repetitive behavior. Execute a novel, high-value next action now.",
+            "Exploration tactics:",
+        ]
+        for tactic in tactics:
+            lines.append(f"- {tactic}")
+
+        if same_tool_streak >= max_same_streak:
+            lines.append(
+                "MANDATORY: switch to a different tool family on the next action."
+            )
+        if self._no_tool_iterations >= 1:
+            lines.append("MANDATORY: reply with tool_call, not planning text.")
+
+        lines.append(
+            "Keep tests in-scope and non-destructive unless explicitly authorized."
+        )
+        return "\n".join(lines)
+
+    def _get_current_phase(self) -> PipelinePhase:
+        if self.pipeline:
+            return self.pipeline.get_current_phase()
+        return PipelinePhase.RECON
+
+    def _sync_phase_objectives(self, phase: PipelinePhase) -> None:
+        defaults = self._PHASE_OBJECTIVES.get(phase.value, [])
+        self.state.ensure_phase_objectives(phase.value, defaults)
+
+    def _update_objectives_from_session(self, phase: PipelinePhase) -> None:
+        if not self._session:
+            return
+        defaults = self._PHASE_OBJECTIVES.get(phase.value, [])
+        if len(defaults) < 3:
+            return
+
+        s = self._session
+        if phase == PipelinePhase.RECON:
+            if s.subdomains or s.live_hosts:
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if s.open_ports:
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if s.scan_count >= 3 or s.urls:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+        elif phase == PipelinePhase.ANALYSIS:
+            if s.technologies or s.urls:
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if s.injection_points:
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if s.vulnerabilities or len(self.state.evidence_log) >= 3:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+        elif phase == PipelinePhase.EXPLOIT:
+            if s.vulnerabilities:
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if any(
+                v.get("proof") or v.get("evidence") or v.get("poc_script_code")
+                for v in s.vulnerabilities
+            ):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if self._consecutive_failures <= 1 and self.state.tool_counts.get("total", 0) >= 3:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+        elif phase == PipelinePhase.REPORT:
+            if any(v.get("report_generated") for v in s.vulnerabilities):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if s.vulnerabilities:
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if "REPORT" in s.completed_phases:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+    def _update_objectives_from_tool(
+        self,
+        phase: PipelinePhase,
+        tool_name: str,
+        arguments: dict[str, Any],
+        success: bool,
+        result: dict[str, Any],
+        output_file: str | None,
+    ) -> None:
+        if not success:
+            return
+        defaults = self._PHASE_OBJECTIVES.get(phase.value, [])
+        if len(defaults) < 3:
+            return
+
+        cmd = ""
+        if tool_name == "execute":
+            cmd = str(arguments.get("command", "")).lower()
+
+        if phase == PipelinePhase.RECON:
+            if tool_name in ("execute", "web_search", "browser_action"):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if cmd and any(hint in cmd for hint in self._RECON_BIN_HINTS):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if cmd and any(hint in cmd for hint in ("nmap", "masscan", "naabu", "rustscan")):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if output_file and output_file.startswith("output/"):
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+        elif phase == PipelinePhase.ANALYSIS:
+            if tool_name in ("execute", "read_file", "browser_action", "web_search"):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if cmd and any(
+                hint in cmd for hint in (
+                    "sqlmap", "dalfox", "nuclei", "xsser", "ffuf", "wfuzz", "nikto"
+                )
+            ):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if self.state.evidence_log:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+        elif phase == PipelinePhase.EXPLOIT:
+            if tool_name in self._EXPLOIT_HEAVY_TOOLS or tool_name == "execute":
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if output_file or re.search(
+                r"(FLAG\{[^}\n]+\}|CVE-\d{4}-\d+)",
+                self._extract_result_text(result),
+                re.IGNORECASE,
+            ):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if self._consecutive_failures <= 1:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+        elif phase == PipelinePhase.REPORT:
+            if tool_name == "create_vulnerability_report":
+                self.state.mark_objective(phase.value, defaults[0], "done")
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if output_file and output_file.startswith("output/"):
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+    def _extract_result_text(self, result: dict[str, Any] | Any) -> str:
+        if result is None:
+            return ""
+        if isinstance(result, str):
+            return result
+        if not isinstance(result, dict):
+            return str(result)
+
+        parts: list[str] = []
+        for key in (
+            "stdout", "stderr", "result", "summary", "error", "message",
+            "note", "findings",
+        ):
+            value = result.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                list_lines = [str(x) for x in value[:8]]
+                if list_lines:
+                    parts.append("\n".join(list_lines))
+            elif isinstance(value, dict):
+                for sub_key in ("summary", "result", "error", "message", "note"):
+                    sub_val = value.get(sub_key)
+                    if isinstance(sub_val, str):
+                        parts.append(sub_val)
+        merged = "\n".join(p for p in parts if p).strip()
+        return merged[:7000]
+
+    def _record_evidence_from_result(
+        self,
+        phase: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        result: dict[str, Any],
+        success: bool,
+        output_file: str | None,
+    ) -> None:
+        if output_file:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Artifact saved to {output_file}",
+                confidence=0.9,
+                artifact=output_file,
+                tags=["artifact", "file"],
+            )
+
+        blob = self._extract_result_text(result)
+        if not blob:
+            return
+
+        if not success:
+            err = str(result.get("error", "")).strip() if isinstance(result, dict) else ""
+            if err:
+                self.state.add_evidence(
+                    phase=phase,
+                    source_tool=tool_name,
+                    summary=f"Execution error observed: {err[:240]}",
+                    confidence=0.4,
+                    tags=["error"],
+                )
+            return
+
+        for flag in re.findall(r"(?:FLAG|flag)\{[^}\n]{1,200}\}", blob):
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Flag pattern captured: {flag}",
+                confidence=1.0,
+                tags=["flag", "ctf"],
+            )
+
+        for cve in re.findall(r"CVE-\d{4}-\d{4,7}", blob, re.IGNORECASE):
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"CVE reference discovered: {cve.upper()}",
+                confidence=0.75,
+                tags=["cve", "vulnerability"],
+            )
+
+        url_matches = list(
+            dict.fromkeys(
+                re.findall(r"https?://[^\s\"'<>]+", blob, re.IGNORECASE)
+            )
+        )
+        for url in url_matches[:4]:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Interesting URL collected: {url}",
+                confidence=0.65,
+                tags=["url", "endpoint"],
+            )
+
+        port_hits = list(
+            dict.fromkeys(
+                re.findall(
+                    r"\b\d{1,5}/(?:tcp|udp)\b|\b(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}\b",
+                    blob,
+                    re.IGNORECASE,
+                )
+            )
+        )
+        for hit in port_hits[:4]:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Service/port evidence: {hit}",
+                confidence=0.7,
+                tags=["network", "recon"],
+            )
+
+        high_signal_lines = []
+        signal_re = re.compile(
+            r"(?i)(vulnerab|injection|xss|sqli|idor|ssrf|rce|auth bypass|token|secret|credential)"
+        )
+        for line in blob.splitlines():
+            line = line.strip()
+            if not line or len(line) < 12:
+                continue
+            if signal_re.search(line):
+                high_signal_lines.append(line[:260])
+            if len(high_signal_lines) >= 3:
+                break
+        for line in high_signal_lines:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Security signal: {line}",
+                confidence=0.7,
+                tags=["signal"],
+            )
+
+        if tool_name == "execute":
+            cmd = str(arguments.get("command", "")).strip()
+            if cmd:
+                self.state.add_evidence(
+                    phase=phase,
+                    source_tool=tool_name,
+                    summary=f"Executed command: {cmd[:220]}",
+                    confidence=0.55,
+                    tags=["execution", "trace"],
+                )
+
+    def _build_phase_gate_note(self, tool_name: str, success: bool) -> str:
+        phase = self._get_current_phase()
+        phase_name = phase.value
+        phase_evidence = [
+            e for e in self.state.evidence_log
+            if str(e.get("phase", "")).upper() == phase_name
+        ]
+        cfg = get_config()
+        explore_mode = self._cfg_bool(cfg, "agent_exploration_mode", True)
+        intensity = self._cfg_float(cfg, "agent_exploration_intensity", 0.8)
+        min_required_evidence = 1 if explore_mode and intensity >= 0.7 else 2
+
+        if (
+            phase in (PipelinePhase.RECON, PipelinePhase.ANALYSIS)
+            and tool_name in self._EXPLOIT_HEAVY_TOOLS
+            and len(phase_evidence) < min_required_evidence
+        ):
+            return (
+                f"[SYSTEM: PHASE GATE]\n"
+                f"You used exploit-heavy tool '{tool_name}' while phase is {phase_name} "
+                "with insufficient evidence.\n"
+                "Before further exploitation, collect stronger artifacts first "
+                "(live hosts, open ports, endpoints, injection points)."
+            )
+
+        if (
+            phase == PipelinePhase.EXPLOIT
+            and not success
+            and self._consecutive_failures >= 2
+        ):
+            return (
+                "[SYSTEM: PHASE GATE]\n"
+                "Exploit attempts are failing repeatedly. Pivot strategy now:\n"
+                "- Switch tool family (web -> network, or network -> browser)\n"
+                "- Use evidence_log to choose a different vector\n"
+                "- Avoid repeating same payload/command."
+            )
+        return ""
+
     def get_progress(self) -> dict[str, Any]:
         """Return progress data for the /api/progress endpoint."""
         session = self._session
@@ -2053,6 +2596,15 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             "max_iterations": self.state.max_iterations,
             "tool_counts": self.state.tool_counts,
             "consecutive_failures": self._consecutive_failures,
+            "objectives": {
+                "total": len(self.state.objective_queue),
+                "completed": sum(
+                    1
+                    for o in self.state.objective_queue
+                    if str(o.get("status", "")).lower() == "done"
+                ),
+            },
+            "evidence_count": len(self.state.evidence_log),
             "session": None,
         }
         if session:

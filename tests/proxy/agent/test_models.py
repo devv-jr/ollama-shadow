@@ -47,3 +47,55 @@ def test_agent_state_truncate_conversation():
     separator_exists = any(
         "older messages compressed/removed" in str(msg.get("content")) for msg in state.conversation)
     assert separator_exists
+
+
+def test_agent_state_phase_objectives_and_status_updates():
+    state = AgentState()
+    defaults = [
+        "Enumerate attack surface",
+        "Confirm open ports",
+    ]
+    state.ensure_phase_objectives("RECON", defaults)
+    # Re-adding defaults should not duplicate entries
+    state.ensure_phase_objectives("RECON", defaults)
+
+    recon_objs = [
+        o for o in state.objective_queue
+        if o.get("phase") == "RECON"
+    ]
+    assert len(recon_objs) == 2
+    assert all(o.get("status") == "pending" for o in recon_objs)
+
+    state.mark_objective("RECON", "Enumerate attack surface", "done")
+    done_obj = next(
+        o for o in state.objective_queue
+        if o.get("phase") == "RECON"
+        and o.get("title") == "Enumerate attack surface"
+    )
+    assert done_obj.get("status") == "done"
+
+
+def test_agent_state_evidence_dedup_and_focus_context():
+    state = AgentState()
+    state.ensure_phase_objectives("ANALYSIS", ["Map technologies"])
+    state.add_evidence(
+        phase="ANALYSIS",
+        source_tool="execute",
+        summary="Detected CVE-2024-1234 in plugin banner",
+        artifact="output/banner.txt",
+        tags=["cve", "banner"],
+    )
+    # Duplicate evidence should be ignored
+    state.add_evidence(
+        phase="ANALYSIS",
+        source_tool="execute",
+        summary="Detected CVE-2024-1234 in plugin banner",
+        artifact="output/banner.txt",
+        tags=["cve", "banner"],
+    )
+    assert len(state.evidence_log) == 1
+
+    context = state.build_focus_context("ANALYSIS")
+    assert "OBJECTIVE FOCUS" in context
+    assert "Map technologies" in context
+    assert "CVE-2024-1234" in context

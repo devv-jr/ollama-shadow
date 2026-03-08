@@ -28,5 +28,7 @@ FALLBACK STRATEGIES:
 - If rate-limited: adjust timing, use distributed approaches, retry later
 - If all techniques fail on a target: document and move to analysis of what WAS found
 
-DO NOT attempt exploitation or vulnerability testing. Focus on information gathering only.
-When attack surface is adequately mapped, the pipeline will transition to ANALYSIS.
+Avoid disruptive exploitation in this phase.
+You MAY run low-noise validation probes (read-only checks, safe payload confirms) when recon is stagnating,
+as long as findings are persisted as evidence and remain in-scope.
+When attack surface is adequately mapped, transition to ANALYSIS.

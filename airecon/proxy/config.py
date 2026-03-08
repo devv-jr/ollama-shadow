@@ -55,6 +55,12 @@ DEFAULT_CONFIG = {
     "agent_repeat_tool_call_limit": 2,
     "agent_missing_tool_retry_limit": 2,
     "agent_plan_revision_interval": 30,
+    "agent_exploration_mode": True,
+    "agent_exploration_intensity": 0.8,
+    "agent_exploration_temperature": 0.35,
+    "agent_stagnation_threshold": 2,
+    "agent_tool_diversity_window": 8,
+    "agent_max_same_tool_streak": 3,
     "allow_destructive_testing": False,
     "browser_page_load_delay": 1.0,
     "ollama_keep_alive": "30m",
@@ -104,6 +110,12 @@ class Config:
     agent_repeat_tool_call_limit: int
     agent_missing_tool_retry_limit: int
     agent_plan_revision_interval: int
+    agent_exploration_mode: bool
+    agent_exploration_intensity: float
+    agent_exploration_temperature: float
+    agent_stagnation_threshold: int
+    agent_tool_diversity_window: int
+    agent_max_same_tool_streak: int
 
     # Safety
     allow_destructive_testing: bool
@@ -257,6 +269,11 @@ class Config:
             "agent_repeat_tool_call_limit": (1, None),
             "agent_missing_tool_retry_limit": (0, None),
             "agent_plan_revision_interval": (1, None),
+            "agent_exploration_intensity": (0.0, 1.0),
+            "agent_exploration_temperature": (0.0, 2.0),
+            "agent_stagnation_threshold": (1, None),
+            "agent_tool_diversity_window": (3, None),
+            "agent_max_same_tool_streak": (1, None),
             "ollama_num_ctx": (1024, None),
             "ollama_num_ctx_small": (1024, None),
             "ollama_num_predict": (1, None),

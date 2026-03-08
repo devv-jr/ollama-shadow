@@ -7,6 +7,16 @@ description: CTF reverse engineering — static analysis with radare2/objdump, d
 
 RE = understand what a binary does → find the flag check → extract or bypass it. All CLI tools, no Ghidra required.
 
+## AIRecon Docker Constraints (Headless Only)
+
+- Engine runs in Docker CLI context; do not rely on GUI workflows.
+- Do NOT use GUI tools such as Ghidra UI, IDA UI, Binary Ninja UI, Cutter, or x64dbg.
+- Use headless CLI flow only: `file`, `checksec`, `strings`, `readelf`, `objdump`, `radare2`, `gdb`, `ltrace`, `strace`.
+- For decompilation in headless mode, prefer:
+  - `r2 -A -q -c "pdg @ main" ./challenge`
+  - batch-style extraction and save output into `output/` files for later reasoning.
+- In AIRecon, always execute via tool calls (`execute`, `read_file`, `create_file`) and persist every important artifact.
+
 **Install:**
 ```
 sudo apt-get install -y radare2 gdb ltrace strace binutils file strings xxd patchelf

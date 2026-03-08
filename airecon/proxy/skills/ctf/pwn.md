@@ -7,6 +7,19 @@ description: CTF binary exploitation — buffer overflow, format string, ROP cha
 
 PWN = find memory corruption → control instruction pointer → execute shellcode or ROP chain.
 
+## AIRecon Docker Constraints (Headless Only)
+
+- AIRecon executes through Docker engine and terminal tools only.
+- Avoid GUI-dependent debuggers and RE suites:
+  - no IDA GUI, no Ghidra UI, no x64dbg, no visual exploit IDE workflows.
+- Prefer deterministic CLI pipeline:
+  - `checksec`, `file`, `nm`, `objdump`, `readelf`, `ROPgadget`, `gdb` batch, `pwntools`.
+- Keep exploitation reproducible:
+  - write exploit scripts to `output/` or `tools/`,
+  - run them via `execute`,
+  - store proof outputs in files so the agent can reason across iterations.
+- If an approach needs manual GUI interaction, replace it with scriptable equivalent before proceeding.
+
 **Install:**
 ```
 pip install pwntools --break-system-packages
