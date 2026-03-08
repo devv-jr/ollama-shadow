@@ -301,6 +301,43 @@ class TestLoopStreamingWithMockedOllama:
         tool_start = next(e for e in events if e.type == "tool_start")
         assert tool_start.data.get("tool") == "execute"
 
+    @pytest.mark.asyncio
+    async def test_watchdog_forces_tool_call_after_text_only_retries(self, loop, mocker):
+        """After repeated text-only iterations, watchdog should inject a tool call."""
+        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch.object(loop, "_scan_workspace_state", return_value="")
+        await loop.initialize(target="test.com", user_message="start recon test.com")
+        loop.state.active_target = "test.com"
+
+        stream_calls = 0
+
+        async def _stream(*args, **kwargs):
+            nonlocal stream_calls
+            stream_calls += 1
+            yield {
+                "message": {
+                    "content": (
+                        "I'll run scan now.\n"
+                        "```bash\n"
+                        "wpscan --url https://test.com\n"
+                        "```"
+                    )
+                },
+                "done": True,
+            }
+
+        loop.ollama.chat_stream = _stream
+
+        events = []
+        async for event in loop.process_message("continue recon test.com"):
+            events.append(event)
+            if event.type == "tool_start":
+                break
+
+        assert stream_calls >= 3
+        tool_start = next(e for e in events if e.type == "tool_start")
+        assert tool_start.data.get("tool") in ("execute", "list_files")
+
 
 class TestAdvancedStateOrchestration:
     def test_sync_phase_objectives_injects_defaults(self, loop):
@@ -365,3 +402,36 @@ class TestAdvancedStateOrchestration:
         loop._stagnation_iterations = 2
         temp = loop._get_iteration_temperature(cfg)
         assert temp >= 0.4
+
+    def test_extract_shell_command_candidate_from_code_block(self, loop):
+        candidate = loop._extract_shell_command_candidate(
+            content_acc=(
+                "Let me run this.\n"
+                "```bash\n"
+                "# enumerate target\n"
+                "nmap -sV test.com\n"
+                "```"
+            ),
+            thinking_acc="",
+        )
+        assert candidate == "nmap -sV test.com"
+
+    def test_quality_scores_have_expected_shape(self, loop):
+        loop.state.add_evidence(
+            phase="EXPLOIT",
+            source_tool="execute",
+            summary="Executed exploit command",
+            confidence=0.9,
+            artifact="output/exploit.txt",
+            tags=["artifact", "execution", "trace", "signal"],
+        )
+        if loop._session:
+            loop._session.vulnerabilities.append(
+                {"title": "SQL Injection", "report_generated": True}
+            )
+        scores = loop._compute_quality_scores()
+        assert set(scores.keys()) == {
+            "evidence", "reproducibility", "impact", "overall", "counts"
+        }
+        assert 0.0 <= scores["overall"] <= 1.0
+        assert scores["counts"]["evidence"] >= 1

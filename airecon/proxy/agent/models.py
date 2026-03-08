@@ -48,6 +48,9 @@ class AgentState:
     missing_tool_count: int = 0
     objective_queue: list[dict[str, Any]] = field(default_factory=list)
     evidence_log: list[dict[str, Any]] = field(default_factory=list)
+    # Tracks cumulative tool usage per pipeline phase for soft budget enforcement.
+    # Structure: {phase_name: {tool_name: call_count}}
+    phase_tool_usage: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def add_message(
         self,
@@ -175,6 +178,15 @@ class AgentState:
         if len(self.evidence_log) > MAX_EVIDENCE:
             self.evidence_log = self.evidence_log[-MAX_EVIDENCE:]
 
+    def record_tool_use(self, phase: str, tool_name: str) -> None:
+        """Increment per-phase tool usage counter for budget tracking."""
+        bucket = self.phase_tool_usage.setdefault(phase, {})
+        bucket[tool_name] = bucket.get(tool_name, 0) + 1
+
+    def get_phase_tool_count(self, phase: str, tool_name: str) -> int:
+        """Return how many times tool_name was used in the given phase."""
+        return self.phase_tool_usage.get(phase, {}).get(tool_name, 0)
+
     def build_focus_context(
         self,
         phase: str,
@@ -252,6 +264,8 @@ class AgentState:
             "[SYSTEM: OBJECTIVE FOCUS",
             "[SYSTEM: PHASE GATE",
             "[SYSTEM: AGGRESSIVE EXPLORATION",
+            "[SYSTEM: QUALITY SCOREBOARD",
+            "[SYSTEM: RECOVERY STATE",
         )
 
         core_system: list[dict] = []

@@ -120,6 +120,7 @@ class AIReconApp(App):
             "Examples:\n"
             "- full recon on example.com\n"
             "- do a pentest on this target\n"
+            "- review this code @/path/file or @/path/dir\n"
             "- bug bounty on example.com — find everything\n"
         )
 

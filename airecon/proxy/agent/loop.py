@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .workspace import _WorkspaceMixin
-from .validators import _ValidatorMixin
+from .validators import _ValidatorMixin, has_dangerous_patterns
 from .tool_defs import get_tool_definitions
 from .session import (
     SessionData,
@@ -9,7 +9,7 @@ from .session import (
     update_from_parsed_output,
     session_to_context,
 )
-from .pipeline import PipelineEngine, PipelinePhase
+from .pipeline import PipelineEngine, PipelinePhase, _PHASE_TOOL_BUDGETS
 from .output_parser import parse_tool_output
 from .models import AgentEvent, AgentState, MAX_TOOL_ITERATIONS
 from .formatters import _FormatterMixin
@@ -38,6 +38,11 @@ with open(_tools_meta_path, "r") as f:
 # from ..correlation import run_correlation
 
 logger = logging.getLogger("airecon.agent")
+
+# Minimum confidence for evidence to count as "meaningful" for stagnation tracking.
+# Low-confidence traces (e.g., execute command log at 0.55) must NOT reset stagnation
+# counter — stagnation should only reset on real security findings.
+_MEANINGFUL_EVIDENCE_THRESHOLD = 0.65
 
 
 class AgentLoop(_ValidatorMixin, _FormatterMixin,
@@ -122,6 +127,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         self._stagnation_iterations: int = 0
         self._recent_tool_names: list[str] = []
         self._last_evidence_count: int = 0
+        self._watchdog_forced_calls: int = 0
         self._session: SessionData | None = None
         self._pending_output_merges: dict[str, list[str]] = {}
         # Tools blocked for this agent (e.g. depth control)
@@ -277,6 +283,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         self._stagnation_iterations = 0
         self._recent_tool_names.clear()
         self._last_evidence_count = 0
+        self._watchdog_forced_calls = 0
         # Create a new session on reset (keeps the old one on disk)
         self._session = SessionData(target="")
         self.pipeline = PipelineEngine(self._session)
@@ -375,6 +382,8 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 "[SYSTEM: OBJECTIVE FOCUS",
                 "[SYSTEM: PHASE GATE",
                 "[SYSTEM: AGGRESSIVE EXPLORATION",
+                "[SYSTEM: QUALITY SCOREBOARD",
+                "[SYSTEM: RECOVERY STATE",
             )
             self.state.conversation = [
                 msg
@@ -460,9 +469,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             self.state.conversation.append(
                 {"role": "user", "content": user_message})
 
-            # Auto-load relevant skills based on user message keywords
+            # Auto-load relevant skills based on user message keywords.
+            # Phase at message start is always RECON (or current if re-entry).
             skill_context, loaded_skills = auto_load_skills_for_message(
-                user_message)
+                user_message, phase="RECON")
             if loaded_skills:
                 for s in loaded_skills:
                     if s not in self.state.skills_used:
@@ -486,7 +496,11 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             self._no_tool_iterations = 0
             self._stagnation_iterations = 0
             self._recent_tool_names = []
-            self._last_evidence_count = len(self.state.evidence_log)
+            self._last_evidence_count = sum(
+                1 for e in self.state.evidence_log
+                if e.get("confidence", 0) >= _MEANINGFUL_EVIDENCE_THRESHOLD
+            )
+            self._watchdog_forced_calls = 0
             # NOTE: Do NOT clear _executed_tool_counts here — dedup must persist
             # across messages within the same session. It is only cleared in
             # reset().
@@ -524,6 +538,19 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     if focus_ctx:
                         self.state.conversation.append(
                             {"role": "system", "content": focus_ctx}
+                        )
+
+                    self.state.conversation = [
+                        msg
+                        for msg in self.state.conversation
+                        if not msg.get("content", "").startswith(
+                            "[SYSTEM: QUALITY SCOREBOARD"
+                        )
+                    ]
+                    quality_ctx = self._build_quality_scoreboard(current_phase)
+                    if quality_ctx:
+                        self.state.conversation.append(
+                            {"role": "system", "content": quality_ctx}
                         )
 
                 explore_ctx = self._build_exploration_directive(current_phase)
@@ -1058,6 +1085,11 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                 },
                             )
                             self.state.truncate_conversation(max_messages=80)
+                            recovery_ctx = self._build_recovery_state_context()
+                            if recovery_ctx:
+                                self.state.conversation.append(
+                                    {"role": "system", "content": recovery_ctx}
+                                )
                             adaptive_num_ctx = cfg.ollama_num_ctx_small
                             thinking_acc = ""
                             content_acc = ""
@@ -1287,7 +1319,9 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     content_acc + " " + thinking_acc).strip()
                 if _llm_output_for_skills:
                     _new_skill_ctx, _new_loaded_skills = auto_load_skills_for_message(
-                        _llm_output_for_skills)
+                        _llm_output_for_skills,
+                        phase=self._get_current_phase().value,
+                    )
 
                     if _new_loaded_skills:
                         for s in _new_loaded_skills:
@@ -1357,48 +1391,80 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             int(getattr(cfg, "agent_missing_tool_retry_limit", 2)) + 1,
                         )
                         if self._no_tool_iterations >= _max_text_only_retries:
-                            msg = (
-                                "Model is stuck in text-only mode and is not calling tools. "
-                                "Stopping to avoid infinite loop. "
-                                "Try restarting the model/session and rerun."
+                            watchdog_call = self._build_watchdog_tool_call(
+                                content_acc=content_acc,
+                                thinking_acc=thinking_acc,
+                                phase=current_phase,
                             )
-                            logger.error(
-                                "Text-only loop abort: active_target=%r no_tool_iters=%d",
+                            if watchdog_call and self._watchdog_forced_calls < 2:
+                                self._watchdog_forced_calls += 1
+                                tool_calls_acc = [watchdog_call]
+                                self._no_tool_iterations = 0
+                                self.state.conversation.append(
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "[SYSTEM: WATCHDOG AUTO-EXECUTION]\n"
+                                            "You were stuck in text-only mode. "
+                                            "A fallback tool call was injected to recover execution continuity. "
+                                            "Use real tool output and continue with the next highest-value step."
+                                        ),
+                                    }
+                                )
+                                logger.warning(
+                                    "Watchdog forced tool_call after no-tool loop "
+                                    "(target=%r, phase=%s, forced_calls=%d, tool=%s)",
+                                    self.state.active_target,
+                                    current_phase.value,
+                                    self._watchdog_forced_calls,
+                                    watchdog_call.get("function", {}).get("name", ""),
+                                )
+                            else:
+                                msg = (
+                                    "Model is stuck in text-only mode and watchdog recovery failed. "
+                                    "Stopping to avoid infinite loop. "
+                                    "Try restarting the model/session and rerun."
+                                )
+                                logger.error(
+                                    "Text-only loop abort: active_target=%r no_tool_iters=%d forced_calls=%d",
+                                    self.state.active_target,
+                                    self._no_tool_iterations,
+                                    self._watchdog_forced_calls,
+                                )
+                                if self._session:
+                                    save_session(self._session)
+                                yield AgentEvent(type="error", data={"message": msg})
+                                yield AgentEvent(type="done", data={})
+                                return
+
+                        if not tool_calls_acc:
+                            self.state.conversation.append(
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "[SYSTEM: RETRY REQUIRED — TOOL CALL MISSING]\n"
+                                        "Do NOT continue with text analysis.\n"
+                                        "You MUST call at least one real tool now "
+                                        "(execute, browser_action, quick_fuzz, read_file, etc.).\n"
+                                        "Respond with tool_call only."
+                                    ),
+                                }
+                            )
+                            logger.warning(
+                                "Retrying iteration due to text-only response in recon mode "
+                                "(target=%r, no_tool_iters=%d)",
                                 self.state.active_target,
                                 self._no_tool_iterations,
                             )
-                            if self._session:
-                                save_session(self._session)
-                            yield AgentEvent(type="error", data={"message": msg})
-                            yield AgentEvent(type="done", data={})
-                            return
-
-                        self.state.conversation.append(
-                            {
-                                "role": "system",
-                                "content": (
-                                    "[SYSTEM: RETRY REQUIRED — TOOL CALL MISSING]\n"
-                                    "Do NOT continue with text analysis.\n"
-                                    "You MUST call at least one real tool now "
-                                    "(execute, browser_action, quick_fuzz, read_file, etc.).\n"
-                                    "Respond with tool_call only."
-                                ),
-                            }
-                        )
-                        logger.warning(
-                            "Retrying iteration due to text-only response in recon mode "
-                            "(target=%r, no_tool_iters=%d)",
-                            self.state.active_target,
-                            self._no_tool_iterations,
-                        )
-                        self._stagnation_iterations += 1
-                        continue
+                            self._stagnation_iterations += 1
+                            continue
 
                     # Non-recon text-only response: treat as final assistant answer.
-                    if self._session:
-                        save_session(self._session)
-                    yield AgentEvent(type="done", data={})
-                    return
+                    if not tool_calls_acc:
+                        if self._session:
+                            save_session(self._session)
+                        yield AgentEvent(type="done", data={})
+                        return
 
                 # Deduplicate tool calls (Ollama streaming sometimes emits
                 # duplicates per chunk)
@@ -1798,6 +1864,13 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         output_file,
                     )
                     self._update_objectives_from_session(phase_after_tool)
+
+                    # Track per-phase tool usage and inject soft budget warning
+                    self.state.record_tool_use(phase_after_tool.value, tool_name)
+                    budget_note = self._check_tool_budget(
+                        tool_name, phase_after_tool.value)
+                    if budget_note:
+                        content_str = budget_note + "\n\n" + content_str
 
                     if not success and self._consecutive_failures >= 3:
                         alt_suggestion = self._suggest_alternative_tool(
@@ -2215,12 +2288,18 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         return streak
 
     def _refresh_exploration_state(self) -> None:
-        evidence_now = len(self.state.evidence_log)
-        if evidence_now > self._last_evidence_count:
+        # Count only meaningful evidence to avoid execute-command traces
+        # (confidence=0.55) masking true stagnation. Stagnation resets only
+        # when real security findings (CVEs, URLs, signals, artifacts) appear.
+        meaningful_now = sum(
+            1 for e in self.state.evidence_log
+            if e.get("confidence", 0) >= _MEANINGFUL_EVIDENCE_THRESHOLD
+        )
+        if meaningful_now > self._last_evidence_count:
             self._stagnation_iterations = 0
         else:
             self._stagnation_iterations += 1
-        self._last_evidence_count = evidence_now
+        self._last_evidence_count = meaningful_now
 
     def _build_exploration_directive(self, phase: PipelinePhase) -> str:
         cfg = get_config()
@@ -2587,9 +2666,293 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             )
         return ""
 
+    def _check_tool_budget(self, tool_name: str, phase: str) -> str:
+        """Return a soft budget warning if this tool is over/near its phase limit.
+
+        Uses _PHASE_TOOL_BUDGETS from pipeline.py. Returns empty string when no
+        constraint exists or budget is not yet reached. Never blocks execution.
+        """
+        budget = _PHASE_TOOL_BUDGETS.get(phase, {}).get(tool_name)
+        if budget is None:
+            return ""
+        usage = self.state.get_phase_tool_count(phase, tool_name)
+        if budget == 0 and usage >= 1:
+            return (
+                f"[TOOL BUDGET] '{tool_name}' is not recommended in {phase} phase "
+                f"(used {usage}×). Switch to a phase-appropriate tool."
+            )
+        if usage >= budget:
+            return (
+                f"[TOOL BUDGET] '{tool_name}' has exhausted its {phase} phase budget "
+                f"({usage}/{budget}). Switch approach or tool family."
+            )
+        if budget > 0 and usage >= int(budget * 0.75):
+            return (
+                f"[TOOL BUDGET] '{tool_name}' is at {usage}/{budget} of {phase} budget. "
+                "Plan remaining calls carefully."
+            )
+        return ""
+
+    def _extract_shell_command_candidate(
+        self,
+        content_acc: str,
+        thinking_acc: str = "",
+    ) -> str | None:
+        """Extract a safe shell command from hallucinated text/code blocks."""
+        command_prefix_re = re.compile(
+            r"^(?:"
+            r"nmap|naabu|masscan|httpx|ffuf|dirsearch|gobuster|katana|hakrawler|"
+            r"subfinder|amass|assetfinder|wpscan|nikto|sqlmap|ghauri|dalfox|"
+            r"curl|wget|python|python3|bash|sh|ls|cat|find|grep"
+            r")\b",
+            re.IGNORECASE,
+        )
+
+        def _safe(cmd: str) -> str | None:
+            cleaned = cmd.strip().lstrip("$").strip()
+            if not cleaned:
+                return None
+            if len(cleaned) > 2000:
+                return None
+            has_danger, _ = has_dangerous_patterns(cleaned)
+            if has_danger:
+                return None
+            return cleaned
+
+        for block in self._FAKE_CMD_BLOCK_RE.findall(content_acc):
+            if not block:
+                continue
+            lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+            if not lines:
+                continue
+
+            picked: list[str] = []
+            for line in lines:
+                if line.startswith("#"):
+                    continue
+                line = line.lstrip("-*0123456789. ").strip()
+                if not picked and not command_prefix_re.match(line.lstrip("$")):
+                    continue
+                picked.append(line)
+                if not line.endswith("\\"):
+                    break
+
+            if picked:
+                candidate = " ".join(
+                    part.rstrip("\\").strip() for part in picked if part.strip()
+                )
+                safe = _safe(candidate)
+                if safe:
+                    return safe
+
+        for raw_line in (content_acc + "\n" + thinking_acc).splitlines():
+            line = raw_line.strip().lstrip("-*0123456789. ").strip()
+            if not line:
+                continue
+            line = line.lstrip("$").strip()
+            if command_prefix_re.match(line):
+                safe = _safe(line)
+                if safe:
+                    return safe
+
+        return None
+
+    def _build_watchdog_tool_call(
+        self,
+        content_acc: str,
+        thinking_acc: str,
+        phase: PipelinePhase,
+    ) -> dict[str, Any]:
+        """Build a deterministic fallback tool_call when model is text-only."""
+        candidate_cmd = self._extract_shell_command_candidate(
+            content_acc=content_acc,
+            thinking_acc=thinking_acc,
+        )
+        if candidate_cmd:
+            return {
+                "id": f"watchdog_execute_{self.state.iteration}",
+                "type": "function",
+                "function": {
+                    "name": "execute",
+                    "arguments": {"command": candidate_cmd},
+                },
+            }
+
+        fallback_path = "output"
+        if phase == PipelinePhase.REPORT:
+            fallback_path = "vulnerabilities"
+
+        return {
+            "id": f"watchdog_list_files_{self.state.iteration}",
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "arguments": {"path": fallback_path},
+            },
+        }
+
+    def _compute_quality_scores(self) -> dict[str, Any]:
+        """Compute lightweight quality scores for finding confidence tracking."""
+        evidence = self.state.evidence_log
+        tags = [tag for ev in evidence for tag in ev.get("tags", [])]
+
+        artifact_count = sum(
+            1 for ev in evidence if ev.get("artifact") or "artifact" in ev.get("tags", [])
+        )
+        execution_count = sum(
+            1 for ev in evidence if "execution" in ev.get("tags", []) or "trace" in ev.get("tags", [])
+        )
+        high_conf_count = sum(
+            1 for ev in evidence if float(ev.get("confidence", 0.0)) >= 0.75
+        )
+        signal_count = tags.count("signal")
+        cve_count = tags.count("cve")
+        flag_count = tags.count("flag")
+        error_count = tags.count("error")
+
+        vuln_count = len(self._session.vulnerabilities) if self._session else 0
+        report_count = 0
+        if self._session:
+            report_count = sum(
+                1 for v in self._session.vulnerabilities if v.get("report_generated")
+            )
+
+        evidence_score = min(
+            1.0,
+            (artifact_count * 0.18)
+            + (high_conf_count * 0.10)
+            + (max(0, len(evidence) - error_count) * 0.02),
+        )
+        reproducibility_score = min(
+            1.0,
+            (execution_count * 0.08)
+            + (artifact_count * 0.12)
+            + (report_count * 0.20),
+        )
+        impact_score = min(
+            1.0,
+            (flag_count * 0.50)
+            + (vuln_count * 0.15)
+            + (cve_count * 0.08)
+            + (signal_count * 0.04),
+        )
+        overall = (
+            (evidence_score * 0.40)
+            + (reproducibility_score * 0.35)
+            + (impact_score * 0.25)
+        )
+
+        return {
+            "evidence": round(evidence_score, 3),
+            "reproducibility": round(reproducibility_score, 3),
+            "impact": round(impact_score, 3),
+            "overall": round(overall, 3),
+            "counts": {
+                "evidence": len(evidence),
+                "artifacts": artifact_count,
+                "executions": execution_count,
+                "vulnerabilities": vuln_count,
+                "reports": report_count,
+                "flags": flag_count,
+            },
+        }
+
+    def _build_quality_scoreboard(self, phase: PipelinePhase) -> str:
+        scores = self._compute_quality_scores()
+        counts = scores.get("counts", {})
+        if int(counts.get("evidence", 0)) == 0 and self.state.iteration <= 1:
+            return ""
+
+        lines = [
+            "[SYSTEM: QUALITY SCOREBOARD]",
+            (
+                f"Phase={phase.value} | "
+                f"Evidence={scores['evidence']:.2f} | "
+                f"Reproducibility={scores['reproducibility']:.2f} | "
+                f"Impact={scores['impact']:.2f} | "
+                f"Overall={scores['overall']:.2f}"
+            ),
+            (
+                "Counts: "
+                f"evidence={counts.get('evidence', 0)}, "
+                f"artifacts={counts.get('artifacts', 0)}, "
+                f"executions={counts.get('executions', 0)}, "
+                f"vulns={counts.get('vulnerabilities', 0)}, "
+                f"reports={counts.get('reports', 0)}"
+            ),
+        ]
+
+        if phase in (PipelinePhase.EXPLOIT, PipelinePhase.REPORT):
+            if float(scores["reproducibility"]) < 0.45:
+                lines.append(
+                    "Gap: reproducibility is low. Run one concrete PoC command and save artifact output now."
+                )
+            if float(scores["impact"]) < 0.35:
+                lines.append(
+                    "Gap: impact proof is weak. Prioritize evidence showing real access/state change."
+                )
+        elif phase in (PipelinePhase.RECON, PipelinePhase.ANALYSIS):
+            if float(scores["evidence"]) < 0.30:
+                lines.append(
+                    "Gap: evidence coverage low. Collect fresh host/port/endpoint artifacts before pivoting."
+                )
+
+        return "\n".join(lines)
+
+    def _build_recovery_state_context(self) -> str:
+        """Build compact state snapshot for post-crash recovery retries."""
+        phase = self._get_current_phase()
+        quality = self._compute_quality_scores()
+        lines = [
+            "[SYSTEM: RECOVERY STATE]",
+            (
+                f"Phase={phase.value} | Iteration={self.state.iteration} | "
+                f"Target={self.state.active_target or 'none'}"
+            ),
+            (
+                f"Quality overall={quality['overall']:.2f} "
+                f"(evidence={quality['evidence']:.2f}, repro={quality['reproducibility']:.2f}, "
+                f"impact={quality['impact']:.2f})"
+            ),
+        ]
+
+        pending = [
+            o for o in self.state.objective_queue
+            if str(o.get("phase", "")).upper() == phase.value
+            and str(o.get("status", "pending")).lower() != "done"
+        ]
+        pending = sorted(
+            pending, key=lambda x: int(x.get("priority", 0)), reverse=True
+        )[:3]
+        if pending:
+            lines.append("Top pending objectives:")
+            for obj in pending:
+                lines.append(f"- {obj.get('title', '')}")
+
+        recent_tools = [
+            t for t in reversed(self.state.tool_history)
+            if t.status == "success"
+        ][:2]
+        if recent_tools:
+            lines.append("Recent successful tools:")
+            for entry in recent_tools:
+                lines.append(f"- {entry.tool_name}")
+
+        recent_evidence = list(reversed(self.state.evidence_log))[:3]
+        if recent_evidence:
+            lines.append("Recent evidence:")
+            for ev in recent_evidence:
+                lines.append(f"- [{ev.get('source_tool', 'tool')}] {ev.get('summary', '')}")
+
+        lines.append(
+            "MANDATORY: first response after recovery must include at least one tool_call."
+        )
+        return "\n".join(lines)
+
     def get_progress(self) -> dict[str, Any]:
         """Return progress data for the /api/progress endpoint."""
         session = self._session
+        quality_scores = self._compute_quality_scores()
         progress = {
             "target": self.state.active_target or "none",
             "iteration": self.state.iteration,
@@ -2605,6 +2968,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 ),
             },
             "evidence_count": len(self.state.evidence_log),
+            "quality_scores": quality_scores,
             "session": None,
         }
         if session:

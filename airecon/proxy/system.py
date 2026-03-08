@@ -269,13 +269,30 @@ def _load_skill_keywords() -> dict[str, str]:
 # Keyword → skill file mapping for auto-loading (loaded from data/skills.json)
 _SKILL_KEYWORDS: dict[str, str] = _load_skill_keywords()
 
+# Phase → preferred skill subdirectories for phase-aware score boosting.
+# Skills in a preferred directory receive +2 bonus on their keyword score,
+# ensuring phase-appropriate skills rank higher. Only skills with at least
+# 1 keyword hit are boosted (zero-hit skills are never injected).
+_PHASE_SKILL_DIRECTORIES: dict[str, set[str]] = {
+    "RECON":    {"reconnaissance", "tools", "protocols"},
+    "ANALYSIS": {"vulnerabilities", "frameworks", "technologies", "protocols"},
+    "EXPLOIT":  {"payloads", "vulnerabilities", "postexploit", "frameworks", "tools", "ctf"},
+    "REPORT":   set(),
+    "COMPLETE": set(),
+}
 
-def auto_load_skills_for_message(user_message: str) -> tuple[str, list[str]]:
+
+def auto_load_skills_for_message(
+    user_message: str, phase: str = ""
+) -> tuple[str, list[str]]:
     """Auto-detect relevant skills from user message and return their content.
 
     Skills are ranked by keyword match count so the most relevant ones are
     always loaded first. Ties are broken alphabetically for stable ordering.
     Limit is 4 to avoid context explosion — always the top-4 most relevant.
+
+    When `phase` is provided, skills in the preferred directories for that
+    phase receive a +2 score bonus to promote phase-appropriate content.
 
     Returns a tuple of (skill_context_string, list_of_loaded_skill_names).
     """
@@ -294,6 +311,16 @@ def auto_load_skills_for_message(user_message: str) -> tuple[str, list[str]]:
 
     if not skill_scores:
         return "", []
+
+    # Phase-aware boost: preferred-directory skills get +2 bonus.
+    # Only applied if there are already keyword hits (no zero-score injection).
+    if phase:
+        preferred = _PHASE_SKILL_DIRECTORIES.get(phase.upper(), set())
+        if preferred:
+            for skill_path in list(skill_scores.keys()):
+                skill_dir = skill_path.split("/")[0]
+                if skill_dir in preferred:
+                    skill_scores[skill_path] += 2
 
     # Sort by score descending, then alphabetically for stable tie-breaking.
     # This ensures the most relevant skills are always loaded — not random.
