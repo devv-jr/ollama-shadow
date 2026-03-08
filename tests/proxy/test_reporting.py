@@ -100,3 +100,78 @@ def test_reporting_duplicate_collision(tmp_path):
     assert result2["success"] is False
     assert "already exists" in result2["message"]
     assert result2["duplicate_of"] == "identical_finding"
+
+
+def test_reporting_uses_active_target_for_filesystem_reference(tmp_path):
+    workspace = str(tmp_path)
+
+    result = create_vulnerability_report(
+        title="Binary Overflow in Challenge",
+        description="Overflow found during local file analysis.",
+        target="/workspace/challenge/uploads/challenge.exe",
+        poc_description="Trigger overflow payload.",
+        poc_script_code="python3 exploit.py",
+        _workspace_root=workspace,
+        _active_target="challenge",
+    )
+
+    assert result["success"] is True
+    report_path = result["report_path"]
+    assert "/challenge/vulnerabilities/" in report_path.replace("\\", "/")
+    assert os.path.exists(report_path)
+
+
+def test_reporting_uses_active_target_for_at_file_reference(tmp_path):
+    workspace = str(tmp_path)
+
+    result = create_vulnerability_report(
+        title="Code Injection in Local Script",
+        description="Detected risky eval on user-controlled input.",
+        target="@/tmp/project/app.py",
+        poc_description="PoC with malicious payload.",
+        poc_script_code="python3 -c \"print('poc')\"",
+        _workspace_root=workspace,
+        _active_target="project",
+    )
+
+    assert result["success"] is True
+    report_path = result["report_path"]
+    assert "/project/vulnerabilities/" in report_path.replace("\\", "/")
+    assert os.path.exists(report_path)
+
+
+def test_reporting_uses_active_target_for_at_folder_reference(tmp_path):
+    workspace = str(tmp_path)
+
+    result = create_vulnerability_report(
+        title="Misconfiguration in Local Folder Target",
+        description="Detected insecure settings in local folder scan.",
+        target="@/tmp/project/src",
+        poc_description="Use crafted request to hit weak endpoint.",
+        poc_script_code="curl -i http://localhost:8080/debug",
+        _workspace_root=workspace,
+        _active_target="project",
+    )
+
+    assert result["success"] is True
+    report_path = result["report_path"]
+    assert "/project/vulnerabilities/" in report_path.replace("\\", "/")
+    assert os.path.exists(report_path)
+
+
+def test_reporting_uses_domain_token_for_scheme_less_url_path(tmp_path):
+    workspace = str(tmp_path)
+
+    result = create_vulnerability_report(
+        title="Scheme-less URL target parsing",
+        description="Ensure host extraction for domain/path targets.",
+        target="example.com/login",
+        poc_description="Simple proof.",
+        poc_script_code="curl -i https://example.com/login",
+        _workspace_root=workspace,
+    )
+
+    assert result["success"] is True
+    report_path = result["report_path"]
+    assert "/example.com/vulnerabilities/" in report_path.replace("\\", "/")
+    assert os.path.exists(report_path)

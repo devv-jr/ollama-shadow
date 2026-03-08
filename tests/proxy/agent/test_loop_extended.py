@@ -4,6 +4,7 @@ tool call parsing, and mocked end-to-end streaming."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from airecon.proxy.agent.loop import AgentLoop
+from airecon.proxy.agent.pipeline import PipelinePhase
 
 
 # ── Fixture ───────────────────────────────────────────────────────────────────
@@ -242,3 +243,195 @@ class TestLoopStreamingWithMockedOllama:
         assert len(error_events) >= 1
         assert "Ollama" in error_events[0].data.get("message", "") or \
                "connect" in error_events[0].data.get("message", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_recovery_does_not_stop_on_text_only_hallucination(self, loop, mocker):
+        """When active recon target exists, a text-only hallucinated response
+        must trigger retry, not immediate done.
+        """
+        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch.object(loop, "_scan_workspace_state", return_value="")
+        await loop.initialize(target="test.com", user_message="start recon test.com")
+        loop.state.active_target = "test.com"
+
+        stream_calls = 0
+
+        async def _stream(*args, **kwargs):
+            nonlocal stream_calls
+            stream_calls += 1
+            if stream_calls == 1:
+                yield {
+                    "message": {
+                        "content": (
+                            "Let me run WPScan first.\n"
+                            "```bash\n"
+                            "wpscan --url https://test.com\n"
+                            "```"
+                        )
+                    },
+                    "done": True,
+                }
+            else:
+                yield {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "execute",
+                                    "arguments": "{\"command\":\"echo recovered\"}",
+                                },
+                            }
+                        ]
+                    },
+                    "done": True,
+                }
+
+        loop.ollama.chat_stream = _stream
+
+        events = []
+        async for event in loop.process_message("continue recon test.com"):
+            events.append(event)
+            if event.type == "tool_start":
+                break
+
+        assert stream_calls >= 2
+        assert not any(e.type == "done" for e in events)
+        tool_start = next(e for e in events if e.type == "tool_start")
+        assert tool_start.data.get("tool") == "execute"
+
+    @pytest.mark.asyncio
+    async def test_watchdog_forces_tool_call_after_text_only_retries(self, loop, mocker):
+        """After repeated text-only iterations, watchdog should inject a tool call."""
+        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch.object(loop, "_scan_workspace_state", return_value="")
+        await loop.initialize(target="test.com", user_message="start recon test.com")
+        loop.state.active_target = "test.com"
+
+        stream_calls = 0
+
+        async def _stream(*args, **kwargs):
+            nonlocal stream_calls
+            stream_calls += 1
+            yield {
+                "message": {
+                    "content": (
+                        "I'll run scan now.\n"
+                        "```bash\n"
+                        "wpscan --url https://test.com\n"
+                        "```"
+                    )
+                },
+                "done": True,
+            }
+
+        loop.ollama.chat_stream = _stream
+
+        events = []
+        async for event in loop.process_message("continue recon test.com"):
+            events.append(event)
+            if event.type == "tool_start":
+                break
+
+        assert stream_calls >= 3
+        tool_start = next(e for e in events if e.type == "tool_start")
+        assert tool_start.data.get("tool") in ("execute", "list_files")
+
+
+class TestAdvancedStateOrchestration:
+    def test_sync_phase_objectives_injects_defaults(self, loop):
+        loop._sync_phase_objectives(PipelinePhase.RECON)
+        recon_objs = [
+            o for o in loop.state.objective_queue
+            if o.get("phase") == "RECON"
+        ]
+        assert len(recon_objs) >= 3
+
+    def test_record_evidence_extracts_key_signals(self, loop):
+        loop._record_evidence_from_result(
+            phase="EXPLOIT",
+            tool_name="execute",
+            arguments={"command": "cat output/final.txt"},
+            result={
+                "stdout": (
+                    "Found FLAG{demo-proof}\n"
+                    "Potential issue CVE-2024-1234\n"
+                    "Endpoint: https://target.local/api/users\n"
+                    "Service 443/tcp open\n"
+                    "Possible SQLi in id parameter"
+                )
+            },
+            success=True,
+            output_file="output/final.txt",
+        )
+        all_summaries = " ".join(
+            str(e.get("summary", "")) for e in loop.state.evidence_log
+        )
+        assert "FLAG{demo-proof}" in all_summaries
+        assert "CVE-2024-1234" in all_summaries
+        assert "https://target.local/api/users" in all_summaries
+        assert "output/final.txt" in all_summaries
+
+    def test_phase_gate_warns_on_early_exploit_without_evidence(self, loop):
+        note = loop._build_phase_gate_note("quick_fuzz", success=True)
+        assert "PHASE GATE" in note
+
+    def test_exploration_directive_triggers_on_stagnation(self, loop, mocker):
+        mocker.patch("airecon.proxy.agent.loop.get_config", return_value=mocker.MagicMock(
+            agent_exploration_mode=True,
+            agent_exploration_intensity=0.9,
+            agent_stagnation_threshold=1,
+            agent_max_same_tool_streak=3,
+            agent_tool_diversity_window=8,
+            ollama_temperature=0.1,
+            agent_exploration_temperature=0.4,
+        ))
+        loop._stagnation_iterations = 2
+        directive = loop._build_exploration_directive(PipelinePhase.RECON)
+        assert "AGGRESSIVE EXPLORATION MODE" in directive
+        assert "novel" in directive.lower()
+
+    def test_iteration_temperature_raises_when_stagnant(self, loop, mocker):
+        cfg = mocker.MagicMock(
+            agent_exploration_mode=True,
+            ollama_temperature=0.1,
+            agent_exploration_temperature=0.4,
+            agent_stagnation_threshold=1,
+        )
+        loop._stagnation_iterations = 2
+        temp = loop._get_iteration_temperature(cfg)
+        assert temp >= 0.4
+
+    def test_extract_shell_command_candidate_from_code_block(self, loop):
+        candidate = loop._extract_shell_command_candidate(
+            content_acc=(
+                "Let me run this.\n"
+                "```bash\n"
+                "# enumerate target\n"
+                "nmap -sV test.com\n"
+                "```"
+            ),
+            thinking_acc="",
+        )
+        assert candidate == "nmap -sV test.com"
+
+    def test_quality_scores_have_expected_shape(self, loop):
+        loop.state.add_evidence(
+            phase="EXPLOIT",
+            source_tool="execute",
+            summary="Executed exploit command",
+            confidence=0.9,
+            artifact="output/exploit.txt",
+            tags=["artifact", "execution", "trace", "signal"],
+        )
+        if loop._session:
+            loop._session.vulnerabilities.append(
+                {"title": "SQL Injection", "report_generated": True}
+            )
+        scores = loop._compute_quality_scores()
+        assert set(scores.keys()) == {
+            "evidence", "reproducibility", "impact", "overall", "counts"
+        }
+        assert 0.0 <= scores["overall"] <= 1.0
+        assert scores["counts"]["evidence"] >= 1

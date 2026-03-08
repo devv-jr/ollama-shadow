@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger("airecon.agent")
 
 MAX_TOOL_ITERATIONS = 2000
 MAX_TOOL_HISTORY = 100
+MAX_OBJECTIVES = 64
+MAX_EVIDENCE = 200
 
 
 @dataclass
@@ -43,6 +46,11 @@ class AgentState:
     warnings_sent: bool = False
     # system_prompt: dict[str, Any] | None = None
     missing_tool_count: int = 0
+    objective_queue: list[dict[str, Any]] = field(default_factory=list)
+    evidence_log: list[dict[str, Any]] = field(default_factory=list)
+    # Tracks cumulative tool usage per pipeline phase for soft budget enforcement.
+    # Structure: {phase_name: {tool_name: call_count}}
+    phase_tool_usage: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def add_message(
         self,
@@ -70,6 +78,170 @@ class AgentState:
                     if isinstance(v, str) and len(v) > _MAX_RESULT_CHARS:
                         entry.result[k] = v[:_MAX_RESULT_CHARS] + " ... [TRUNCATED]"
 
+    def ensure_phase_objectives(
+        self, phase: str, defaults: list[str]
+    ) -> None:
+        """Ensure default objectives exist for the given phase."""
+        if not defaults:
+            return
+
+        existing = {
+            str(obj.get("title", "")).strip().lower()
+            for obj in self.objective_queue
+            if str(obj.get("phase", "")).upper() == phase.upper()
+        }
+        for idx, title in enumerate(defaults):
+            key = title.strip().lower()
+            if key in existing:
+                continue
+            self.objective_queue.append(
+                {
+                    "phase": phase.upper(),
+                    "title": title,
+                    "status": "pending",
+                    "priority": max(1, 100 - (idx * 10)),
+                    "updated_iteration": self.iteration,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
+        if len(self.objective_queue) > MAX_OBJECTIVES:
+            self.objective_queue = self.objective_queue[-MAX_OBJECTIVES:]
+
+    def mark_objective(
+        self,
+        phase: str,
+        title: str,
+        status: str = "done",
+        note: str | None = None,
+    ) -> None:
+        """Update an objective status for a given phase/title."""
+        norm_phase = phase.upper()
+        norm_title = title.strip().lower()
+        now = datetime.now(timezone.utc).isoformat()
+        for obj in self.objective_queue:
+            if (
+                str(obj.get("phase", "")).upper() == norm_phase
+                and str(obj.get("title", "")).strip().lower() == norm_title
+            ):
+                obj["status"] = status
+                obj["updated_iteration"] = self.iteration
+                obj["updated_at"] = now
+                if note:
+                    obj["note"] = note
+                return
+
+    def add_evidence(
+        self,
+        phase: str,
+        source_tool: str,
+        summary: str,
+        confidence: float = 0.6,
+        artifact: str | None = None,
+        tags: list[str] | None = None,
+    ) -> None:
+        """Record deduplicated evidence from real tool output."""
+        clean_summary = " ".join(str(summary).strip().split())
+        if not clean_summary:
+            return
+
+        phase_key = phase.upper()
+        tags = tags or []
+        dedup_key = (
+            phase_key,
+            source_tool.strip().lower(),
+            clean_summary.lower(),
+            (artifact or "").strip().lower(),
+        )
+        for existing in self.evidence_log[-50:]:
+            prev_key = (
+                str(existing.get("phase", "")).upper(),
+                str(existing.get("source_tool", "")).strip().lower(),
+                str(existing.get("summary", "")).strip().lower(),
+                str(existing.get("artifact", "")).strip().lower(),
+            )
+            if dedup_key == prev_key:
+                return
+
+        self.evidence_log.append(
+            {
+                "phase": phase_key,
+                "source_tool": source_tool,
+                "summary": clean_summary[:600],
+                "confidence": max(0.0, min(float(confidence), 1.0)),
+                "artifact": artifact,
+                "tags": tags,
+                "iteration": self.iteration,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        if len(self.evidence_log) > MAX_EVIDENCE:
+            self.evidence_log = self.evidence_log[-MAX_EVIDENCE:]
+
+    def record_tool_use(self, phase: str, tool_name: str) -> None:
+        """Increment per-phase tool usage counter for budget tracking."""
+        bucket = self.phase_tool_usage.setdefault(phase, {})
+        bucket[tool_name] = bucket.get(tool_name, 0) + 1
+
+    def get_phase_tool_count(self, phase: str, tool_name: str) -> int:
+        """Return how many times tool_name was used in the given phase."""
+        return self.phase_tool_usage.get(phase, {}).get(tool_name, 0)
+
+    def build_focus_context(
+        self,
+        phase: str,
+        max_objectives: int = 4,
+        max_evidence: int = 6,
+    ) -> str:
+        """Create objective+evidence context to keep the LLM execution-focused."""
+        phase_key = phase.upper()
+
+        pending = [
+            o for o in self.objective_queue
+            if str(o.get("phase", "")).upper() == phase_key
+            and str(o.get("status", "pending")).lower() != "done"
+        ]
+        pending = sorted(
+            pending, key=lambda x: int(x.get("priority", 0)), reverse=True
+        )[:max_objectives]
+
+        completed = [
+            o for o in self.objective_queue
+            if str(o.get("phase", "")).upper() == phase_key
+            and str(o.get("status", "")).lower() == "done"
+        ][:max_objectives]
+
+        evidence = [
+            e for e in reversed(self.evidence_log)
+            if str(e.get("phase", "")).upper() == phase_key
+        ][:max_evidence]
+
+        if not pending and not evidence and not completed:
+            return ""
+
+        lines = [f"[SYSTEM: OBJECTIVE FOCUS — PHASE {phase_key}]"]
+        if pending:
+            lines.append("Pending objectives:")
+            for obj in pending:
+                lines.append(f"- {obj.get('title', '')}")
+        if completed:
+            lines.append("Completed objectives:")
+            for obj in completed:
+                lines.append(f"- {obj.get('title', '')}")
+        if evidence:
+            lines.append("Recent evidence:")
+            for ev in evidence:
+                src = ev.get("source_tool", "tool")
+                summary = ev.get("summary", "")
+                artifact = ev.get("artifact")
+                artifact_note = f" [{artifact}]" if artifact else ""
+                lines.append(f"- [{src}] {summary}{artifact_note}")
+
+        lines.append(
+            "MANDATORY: pick one pending objective OR run one high-value novel hypothesis, then call the best next tool now."
+        )
+        return "\n".join(lines)
+
     def is_approaching_limit(self) -> bool:
         return self.iteration >= (self.max_iterations - 3)
 
@@ -89,6 +261,11 @@ class AgentState:
             "[SYSTEM: MANDATORY PLANNING",
             "[SYSTEM: PREVIOUS SESSION DATA",
             "[SYSTEM: CRITICAL FINDINGS",
+            "[SYSTEM: OBJECTIVE FOCUS",
+            "[SYSTEM: PHASE GATE",
+            "[SYSTEM: AGGRESSIVE EXPLORATION",
+            "[SYSTEM: QUALITY SCOREBOARD",
+            "[SYSTEM: RECOVERY STATE",
         )
 
         core_system: list[dict] = []
@@ -133,8 +310,7 @@ class AgentState:
                     first_line = content.split("\n")[0]
                     msg["content"] = f"[COMPRESSED] {first_line[:150]}"
                 else:
-                    msg["content"] = f"[COMPRESSED] Tool result ({
-                        len(content)} chars)"
+                    msg["content"] = f"[COMPRESSED] Tool result ({len(content)} chars)"
 
             # Compress verbose assistant text (not tool calls)
             elif (
@@ -332,8 +508,7 @@ class AgentState:
                 summaries.append({
                     "role": "system",
                     "content": (
-                        f"[COMPRESSED MEMORY — {
-                            len(chunk)} messages]: {summary_text}"
+                        f"[COMPRESSED MEMORY — {len(chunk)} messages]: {summary_text}"
                     ),
                 })
             except Exception as e:
@@ -344,8 +519,6 @@ class AgentState:
         before = len(self.conversation)
         self.conversation = system_msgs + [first_user] + summaries + keep_tail
         logger.info(
-            f"Memory compressed: {
-                len(to_compress)} messages → {
-                len(summaries)} summaries "
+            f"Memory compressed: {len(to_compress)} messages → {len(summaries)} summaries "
             f"({before} → {len(self.conversation)} total)"
         )

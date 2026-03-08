@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .workspace import _WorkspaceMixin
-from .validators import _ValidatorMixin
+from .validators import _ValidatorMixin, has_dangerous_patterns
 from .tool_defs import get_tool_definitions
 from .session import (
     SessionData,
@@ -9,12 +9,16 @@ from .session import (
     update_from_parsed_output,
     session_to_context,
 )
-from .pipeline import PipelineEngine, PipelinePhase
+from .pipeline import PipelineEngine, PipelinePhase, _PHASE_TOOL_BUDGETS
 from .output_parser import parse_tool_output
 from .models import AgentEvent, AgentState, MAX_TOOL_ITERATIONS
 from .formatters import _FormatterMixin
 from .executors import _ExecutorMixin
 from ..system import auto_load_skills_for_message
+from .file_reference import (
+    parse_refs, strip_refs, resolve_ref,
+    build_injection_message, workspace_name_for_ref,
+)
 from ..ollama import OllamaClient
 from ..docker import DockerEngine
 from ..config import get_config, get_workspace_root
@@ -34,6 +38,11 @@ with open(_tools_meta_path, "r") as f:
 # from ..correlation import run_correlation
 
 logger = logging.getLogger("airecon.agent")
+
+# Minimum confidence for evidence to count as "meaningful" for stagnation tracking.
+# Low-confidence traces (e.g., execute command log at 0.55) must NOT reset stagnation
+# counter — stagnation should only reset on real security findings.
+_MEANINGFUL_EVIDENCE_THRESHOLD = 0.65
 
 
 class AgentLoop(_ValidatorMixin, _FormatterMixin,
@@ -67,6 +76,37 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
     # Max number of times the same CTF-local challenge can be seen before CTF
     # mode kicks in
     _CTF_MAX_ITERATIONS = 150
+    _PHASE_OBJECTIVES: dict[str, list[str]] = {
+        "RECON": [
+            "Enumerate target surface (domains/hosts/services)",
+            "Validate live hosts and open ports",
+            "Persist recon artifacts in output/ files",
+        ],
+        "ANALYSIS": [
+            "Map technologies, endpoints, and parameters",
+            "Identify meaningful injection points or misconfigurations",
+            "Correlate findings into exploit candidates",
+        ],
+        "EXPLOIT": [
+            "Validate exploitability with real tool output",
+            "Capture PoC evidence and affected assets",
+            "Avoid duplicate commands and pivot when blocked",
+        ],
+        "REPORT": [
+            "Create vulnerability reports for confirmed findings",
+            "Document impact and remediation guidance",
+            "Mark task complete when evidence is sufficient",
+        ],
+    }
+    _EXPLOIT_HEAVY_TOOLS = frozenset({
+        "quick_fuzz", "advanced_fuzz", "deep_fuzz",
+        "schemathesis_fuzz", "create_vulnerability_report",
+    })
+    _RECON_BIN_HINTS = (
+        "subfinder", "amass", "assetfinder", "findomain",
+        "httpx", "nmap", "masscan", "naabu", "dnsx",
+        "ffuf", "dirsearch", "gobuster", "katana", "hakrawler",
+    )
 
     def __init__(self, ollama: OllamaClient, engine: DockerEngine) -> None:
         self.ollama = ollama
@@ -84,6 +124,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         # Tracks consecutive iterations where LLM returned no tool calls.
         # Used to escalate nudges when the model is stuck in text-only mode.
         self._no_tool_iterations: int = 0
+        self._stagnation_iterations: int = 0
+        self._recent_tool_names: list[str] = []
+        self._last_evidence_count: int = 0
+        self._watchdog_forced_calls: int = 0
         self._session: SessionData | None = None
         self._pending_output_merges: dict[str, list[str]] = {}
         # Tools blocked for this agent (e.g. depth control)
@@ -219,8 +263,8 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 session_id=_session_id, target=""
             )
             logger.info(
-                f"Loaded session {_session_id} (target={
-                    self._session.target})")
+                f"Loaded session {_session_id} (target={self._session.target})"
+            )
         else:
             self._session = SessionData(target="")
             logger.info(f"Created new session {self._session.session_id}")
@@ -234,7 +278,12 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         if self._initial_messages:
             self.state.conversation = list(self._initial_messages)
         self._executed_tool_counts.clear()
+        self._executed_cmd_hashes.clear()
         self._last_output_file = None
+        self._stagnation_iterations = 0
+        self._recent_tool_names.clear()
+        self._last_evidence_count = 0
+        self._watchdog_forced_calls = 0
         # Create a new session on reset (keeps the old one on disk)
         self._session = SessionData(target="")
         self.pipeline = PipelineEngine(self._session)
@@ -242,6 +291,16 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
     async def process_message(
             self, user_message: str) -> AsyncIterator[AgentEvent]:
         try:
+            # ── Strip @/path refs BEFORE target extraction ────────────────
+            # Prevents filenames like @/tmp/app.com or @/tmp/evil.com from
+            # being mistakenly detected as domain/IP targets by the regex.
+            # workspace/<target>/ ← IP/domain (from clean message)
+            # workspace/<stem>/   ← file stem (fallback when no target)
+            # workspace/<dir>/    ← dir name (fallback when no target)
+            _file_refs = parse_refs(user_message)
+            if _file_refs:
+                user_message = strip_refs(user_message, _file_refs)
+
             all_targets = self._extract_targets_from_text(user_message)
             extracted_target = all_targets[0] if all_targets else None
 
@@ -288,6 +347,15 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
 
             cfg = get_config()
 
+            # Set workspace from file ref if no IP/domain was detected.
+            # workspace/challenge/  ← @/tmp/challenge.exe (stem)
+            # workspace/project1/   ← @/path/project1/   (dir name)
+            # workspace/192.168.1.1/ kept when IP/domain target already set.
+            if _file_refs and not self.state.active_target:
+                self.state.active_target = workspace_name_for_ref(
+                    _file_refs[0]
+                )
+
             _COMPLEX_SIGNALS = (
                 "how", "what", "why", "explain", "show me", "list", "help",
                 "?", "can you", "could you", "please tell", "describe",
@@ -311,6 +379,11 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 "[SYSTEM: WORKSPACE",
                 "[SYSTEM: ACTIVE_TARGET",
                 "[SYSTEM: ADDITIONAL_TARGETS",
+                "[SYSTEM: OBJECTIVE FOCUS",
+                "[SYSTEM: PHASE GATE",
+                "[SYSTEM: AGGRESSIVE EXPLORATION",
+                "[SYSTEM: QUALITY SCOREBOARD",
+                "[SYSTEM: RECOVERY STATE",
             )
             self.state.conversation = [
                 msg
@@ -370,12 +443,36 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         }
                     )
 
+            # Resolve @/path file references (parsed earlier, before autostart)
+            if _file_refs:
+                _workspace_root = get_workspace_root().resolve()
+                _workspace_dir = (
+                    _workspace_root / (self.state.active_target or "uploads")
+                ).resolve()
+                try:
+                    _workspace_dir.relative_to(_workspace_root)
+                except ValueError:
+                    logger.warning(
+                        "Blocked unsafe workspace target %r for file refs; using fallback uploads/",
+                        self.state.active_target,
+                    )
+                    _workspace_dir = _workspace_root / "uploads"
+                _resolved = await asyncio.to_thread(
+                    lambda: [resolve_ref(r, _workspace_dir) for r in _file_refs]
+                )
+                _injection = build_injection_message(_resolved)
+                if _injection:
+                    self.state.conversation.append(
+                        {"role": "system", "content": _injection}
+                    )
+
             self.state.conversation.append(
                 {"role": "user", "content": user_message})
 
-            # Auto-load relevant skills based on user message keywords
+            # Auto-load relevant skills based on user message keywords.
+            # Phase at message start is always RECON (or current if re-entry).
             skill_context, loaded_skills = auto_load_skills_for_message(
-                user_message)
+                user_message, phase="RECON")
             if loaded_skills:
                 for s in loaded_skills:
                     if s not in self.state.skills_used:
@@ -397,6 +494,13 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             self._stop_requested = False
             self._consecutive_failures = 0
             self._no_tool_iterations = 0
+            self._stagnation_iterations = 0
+            self._recent_tool_names = []
+            self._last_evidence_count = sum(
+                1 for e in self.state.evidence_log
+                if e.get("confidence", 0) >= _MEANINGFUL_EVIDENCE_THRESHOLD
+            )
+            self._watchdog_forced_calls = 0
             # NOTE: Do NOT clear _executed_tool_counts here — dedup must persist
             # across messages within the same session. It is only cleared in
             # reset().
@@ -410,6 +514,57 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     return
 
                 self.state.increment_iteration()
+                current_phase = self._get_current_phase()
+                self._sync_phase_objectives(current_phase)
+                self._update_objectives_from_session(current_phase)
+
+                if (
+                    self.state.iteration == 1
+                    or self.state.iteration % 3 == 0
+                    or self._no_tool_iterations >= 1
+                ):
+                    self.state.conversation = [
+                        msg
+                        for msg in self.state.conversation
+                        if not msg.get("content", "").startswith(
+                            "[SYSTEM: OBJECTIVE FOCUS"
+                        )
+                    ]
+                    focus_ctx = self.state.build_focus_context(
+                        current_phase.value,
+                        max_objectives=4,
+                        max_evidence=6,
+                    )
+                    if focus_ctx:
+                        self.state.conversation.append(
+                            {"role": "system", "content": focus_ctx}
+                        )
+
+                    self.state.conversation = [
+                        msg
+                        for msg in self.state.conversation
+                        if not msg.get("content", "").startswith(
+                            "[SYSTEM: QUALITY SCOREBOARD"
+                        )
+                    ]
+                    quality_ctx = self._build_quality_scoreboard(current_phase)
+                    if quality_ctx:
+                        self.state.conversation.append(
+                            {"role": "system", "content": quality_ctx}
+                        )
+
+                explore_ctx = self._build_exploration_directive(current_phase)
+                if explore_ctx:
+                    self.state.conversation = [
+                        msg
+                        for msg in self.state.conversation
+                        if not msg.get("content", "").startswith(
+                            "[SYSTEM: AGGRESSIVE EXPLORATION"
+                        )
+                    ]
+                    self.state.conversation.append(
+                        {"role": "system", "content": explore_ctx}
+                    )
 
                 # --- PLANNING INJECTION (iteration 1 only) ---
                 if self.state.iteration == 1:
@@ -447,8 +602,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         {
                             "role": "system",
                             "content": (
-                                f"[SYSTEM: MANDATORY PLAN REVISION — iteration {
-                                    self.state.iteration}]{session_info}\n"
+                                f"[SYSTEM: MANDATORY PLAN REVISION — iteration {self.state.iteration}]{session_info}\n"
                                 "Your original plan may be stale. REVISED PLANNING REQUIRED:\n"
                                 "1. Compare original plan vs actual findings\n"
                                 "2. What has WORKED? What has FAILED?\n"
@@ -493,8 +647,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         {
                             "role": "system",
                             "content": (
-                                f"[SYSTEM: EXECUTION CHECKPOINT — Itr {
-                                    self.state.iteration}]"
+                                f"[SYSTEM: EXECUTION CHECKPOINT — Itr {self.state.iteration}]"
                                 f"{session_info}\n\n"
                                 f"{pipeline_prompt}"
                                 "MANDATORY ACTION: Do not just plan. Pick the absolute best next tool and execute it. If done, output [TASK_COMPLETE]."
@@ -629,9 +782,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             ]
                             vuln_chaining_prompt = (
                                 f"\n\n[VULNERABILITY CHAINING ANALYSIS]\n"
-                                f"You have {
-                                    len(
-                                        s.vulnerabilities)} vulnerabilities. Consider chaining:\n"
+                                f"You have {len(s.vulnerabilities)} vulnerabilities. Consider chaining:\n"
                                 f"Current vulns: {'; '.join(vuln_titles)}\n"
                                 f"Analyze if combining these can lead to greater impact:\n"
                                 f"- Can XSS be combined with CSRF for session hijacking?\n"
@@ -694,8 +845,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             {
                                 "role": "system",
                                 "content": (
-                                    f"[SYSTEM: ANALYSIS — Itr {
-                                        self.state.iteration}]"
+                                    f"[SYSTEM: ANALYSIS — Itr {self.state.iteration}]"
                                     f"{correlation_prompt}"
                                     f"{vuln_chaining_prompt}"
                                     f"{expert_testing_prompt}\n"
@@ -780,6 +930,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                 # Context window — full size by default; reduced to small on
                 # VRAM crash retry
                 adaptive_num_ctx = cfg.ollama_num_ctx
+                adaptive_temperature = self._get_iteration_temperature(cfg)
 
                 # --- VRAM-CRASH RECOVERY LOOP ---
                 # Attempt the LLM stream up to 2 times.
@@ -795,7 +946,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             tools=self._tools_ollama,
                             options={
                                 "num_ctx": adaptive_num_ctx,
-                                "temperature": cfg.ollama_temperature,
+                                "temperature": adaptive_temperature,
                                 "num_predict": cfg.ollama_num_predict,
                             },
                             think=cfg.ollama_enable_thinking
@@ -809,6 +960,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                 chunk_data = dict(chunk)
 
                             _last_chunk_data = chunk_data  # Keep track of last chunk for token info
+
+                            # Honour stop() mid-stream so the agent exits promptly
+                            if self._stop_requested:
+                                break
 
                             message = chunk_data.get("message", {})
                             chunk_thinking = message.get("thinking")
@@ -925,12 +1080,16 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                     "content": (
                                         "\n[AUTO-RECOVERY] Ollama VRAM crash detected. "
                                         "Truncating context and retrying with reduced "
-                                        f"context window ({
-                                            cfg.ollama_num_ctx_small} tokens)...\n"
+                                        f"context window ({cfg.ollama_num_ctx_small} tokens)...\n"
                                     )
                                 },
                             )
                             self.state.truncate_conversation(max_messages=80)
+                            recovery_ctx = self._build_recovery_state_context()
+                            if recovery_ctx:
+                                self.state.conversation.append(
+                                    {"role": "system", "content": recovery_ctx}
+                                )
                             adaptive_num_ctx = cfg.ollama_num_ctx_small
                             thinking_acc = ""
                             content_acc = ""
@@ -949,9 +1108,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                         elif "connection refused" in err_lower:
                             error_msg = "Cannot connect to Ollama (connection refused).\nFix: start Ollama with `ollama serve`."
                         elif "model not found" in err_lower or "pull" in err_lower:
-                            error_msg = f"Model not found: {
-                                cfg.ollama_model}\nFix: run `ollama pull {
-                                cfg.ollama_model}`."
+                            error_msg = (
+                                f"Model not found: {cfg.ollama_model}\n"
+                                f"Fix: run `ollama pull {cfg.ollama_model}`."
+                            )
                         elif "context length" in err_lower or "out of memory" in err_lower:
                             error_msg = "Model ran out of context or memory.\nFix: lower `ollama_num_ctx` in config (e.g. 32768)."
                         elif "timeout" in err_lower or "timed out" in err_lower:
@@ -1159,7 +1319,9 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     content_acc + " " + thinking_acc).strip()
                 if _llm_output_for_skills:
                     _new_skill_ctx, _new_loaded_skills = auto_load_skills_for_message(
-                        _llm_output_for_skills)
+                        _llm_output_for_skills,
+                        phase=self._get_current_phase().value,
+                    )
 
                     if _new_loaded_skills:
                         for s in _new_loaded_skills:
@@ -1202,15 +1364,107 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                 self.state.planned_tools.append(tool)
 
                 if not tool_calls_acc:
+                    self._no_tool_iterations += 1
                     if _has_task_complete:
                         logger.info(
                             "Agent emitted [TASK_COMPLETE] — stopping.")
-                    # Save session on any early text-only exit (with or without
-                    # TASK_COMPLETE)
-                    if self._session:
-                        save_session(self._session)
-                    yield AgentEvent(type="done", data={})
-                    return
+                        # Save session on explicit completion
+                        if self._session:
+                            save_session(self._session)
+                        yield AgentEvent(type="done", data={})
+                        return
+
+                    # In active recon sessions, do NOT stop on text-only hallucinations.
+                    # Force another iteration so the model must produce real tool calls.
+                    _force_tool_mode = bool(self.state.active_target)
+                    _retry_text_only = (
+                        _force_tool_mode
+                        and (
+                            has_fake_cmd_block
+                            or has_hallucination_risk
+                            or self._no_tool_iterations >= 2
+                        )
+                    )
+                    if _retry_text_only:
+                        _max_text_only_retries = max(
+                            3,
+                            int(getattr(cfg, "agent_missing_tool_retry_limit", 2)) + 1,
+                        )
+                        if self._no_tool_iterations >= _max_text_only_retries:
+                            watchdog_call = self._build_watchdog_tool_call(
+                                content_acc=content_acc,
+                                thinking_acc=thinking_acc,
+                                phase=current_phase,
+                            )
+                            if watchdog_call and self._watchdog_forced_calls < 2:
+                                self._watchdog_forced_calls += 1
+                                tool_calls_acc = [watchdog_call]
+                                self._no_tool_iterations = 0
+                                self.state.conversation.append(
+                                    {
+                                        "role": "system",
+                                        "content": (
+                                            "[SYSTEM: WATCHDOG AUTO-EXECUTION]\n"
+                                            "You were stuck in text-only mode. "
+                                            "A fallback tool call was injected to recover execution continuity. "
+                                            "Use real tool output and continue with the next highest-value step."
+                                        ),
+                                    }
+                                )
+                                logger.warning(
+                                    "Watchdog forced tool_call after no-tool loop "
+                                    "(target=%r, phase=%s, forced_calls=%d, tool=%s)",
+                                    self.state.active_target,
+                                    current_phase.value,
+                                    self._watchdog_forced_calls,
+                                    watchdog_call.get("function", {}).get("name", ""),
+                                )
+                            else:
+                                msg = (
+                                    "Model is stuck in text-only mode and watchdog recovery failed. "
+                                    "Stopping to avoid infinite loop. "
+                                    "Try restarting the model/session and rerun."
+                                )
+                                logger.error(
+                                    "Text-only loop abort: active_target=%r no_tool_iters=%d forced_calls=%d",
+                                    self.state.active_target,
+                                    self._no_tool_iterations,
+                                    self._watchdog_forced_calls,
+                                )
+                                if self._session:
+                                    save_session(self._session)
+                                yield AgentEvent(type="error", data={"message": msg})
+                                yield AgentEvent(type="done", data={})
+                                return
+
+                        if not tool_calls_acc:
+                            self.state.conversation.append(
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "[SYSTEM: RETRY REQUIRED — TOOL CALL MISSING]\n"
+                                        "Do NOT continue with text analysis.\n"
+                                        "You MUST call at least one real tool now "
+                                        "(execute, browser_action, quick_fuzz, read_file, etc.).\n"
+                                        "Respond with tool_call only."
+                                    ),
+                                }
+                            )
+                            logger.warning(
+                                "Retrying iteration due to text-only response in recon mode "
+                                "(target=%r, no_tool_iters=%d)",
+                                self.state.active_target,
+                                self._no_tool_iterations,
+                            )
+                            self._stagnation_iterations += 1
+                            continue
+
+                    # Non-recon text-only response: treat as final assistant answer.
+                    if not tool_calls_acc:
+                        if self._session:
+                            save_session(self._session)
+                        yield AgentEvent(type="done", data={})
+                        return
 
                 # Deduplicate tool calls (Ollama streaming sometimes emits
                 # duplicates per chunk)
@@ -1225,8 +1479,6 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
 
                 if tool_calls_acc:
                     self._no_tool_iterations = 0
-                else:
-                    self._no_tool_iterations += 1
 
                 if not content_acc.strip():
                     tool_names_str = ", ".join(
@@ -1539,6 +1791,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             "tool_counts": self.state.tool_counts,
                         },
                     )
+                    self._track_tool_usage(tool_name)
 
                     if success:
                         self._consecutive_failures = 0
@@ -1560,6 +1813,10 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                             tool_name)  # type: ignore[attr-defined]
                         if phase_warn:
                             content_str = phase_warn + "\n\n" + content_str
+                    phase_gate_note = self._build_phase_gate_note(
+                        tool_name, success)
+                    if phase_gate_note:
+                        content_str = phase_gate_note + "\n\n" + content_str
 
                     # --- PHASE 1 ARTIFACT ENFORCEMENT ---
                     if success and tool_name in (
@@ -1589,13 +1846,38 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                                 )
                                 save_session(self._session)
 
+                    phase_after_tool = self._get_current_phase()
+                    self._record_evidence_from_result(
+                        phase=phase_after_tool.value,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=result,
+                        success=success,
+                        output_file=output_file,
+                    )
+                    self._update_objectives_from_tool(
+                        phase_after_tool,
+                        tool_name,
+                        arguments,
+                        success,
+                        result,
+                        output_file,
+                    )
+                    self._update_objectives_from_session(phase_after_tool)
+
+                    # Track per-phase tool usage and inject soft budget warning
+                    self.state.record_tool_use(phase_after_tool.value, tool_name)
+                    budget_note = self._check_tool_budget(
+                        tool_name, phase_after_tool.value)
+                    if budget_note:
+                        content_str = budget_note + "\n\n" + content_str
+
                     if not success and self._consecutive_failures >= 3:
                         alt_suggestion = self._suggest_alternative_tool(
                             tool_name, raw_command
                         )
                         content_str += (
-                            f"\n\n[SYSTEM: {
-                                self._consecutive_failures} CONSECUTIVE FAILURES DETECTED] "
+                            f"\n\n[SYSTEM: {self._consecutive_failures} CONSECUTIVE FAILURES DETECTED] "
                             "MANDATORY: Stop using the current approach. "
                             "Switch to a completely different tool or strategy. "
                             + (
@@ -1647,6 +1929,8 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
                     self._append_tool_result(
                         tool_name, content_str, success, tc.get("id")
                     )
+
+                self._refresh_exploration_state()
 
                 # Persist session state incrementally after every tool
                 # execution
@@ -1888,8 +2172,8 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
             old_lines = full_path.read_text(errors="ignore").splitlines()
             self._pending_output_merges[str(full_path)] = old_lines
             logger.info(
-                f"Saved {
-                    len(old_lines)} existing lines from '{output_file}' for post-run merge")
+                f"Saved {len(old_lines)} existing lines from '{output_file}' for post-run merge"
+            )
         except Exception as e:
             logger.warning(
                 f"Could not save old content of '{output_file}' for merge: {e}")
@@ -1943,15 +2227,748 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
         # Generic fallback
         return "Try using a completely different tool. Run 'which <tool>' to verify availability."
 
+    @staticmethod
+    def _cfg_bool(cfg: Any, key: str, default: bool) -> bool:
+        try:
+            val = getattr(cfg, key, default)
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                return val.lower() in ("1", "true", "yes", "on")
+            return bool(val)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _cfg_int(cfg: Any, key: str, default: int) -> int:
+        try:
+            return int(getattr(cfg, key, default))
+        except Exception:
+            return default
+
+    @staticmethod
+    def _cfg_float(cfg: Any, key: str, default: float) -> float:
+        try:
+            return float(getattr(cfg, key, default))
+        except Exception:
+            return default
+
+    def _get_iteration_temperature(self, cfg: Any) -> float:
+        base_temp = self._cfg_float(cfg, "ollama_temperature", 0.15)
+        if not self._cfg_bool(cfg, "agent_exploration_mode", True):
+            return base_temp
+        exploration_temp = self._cfg_float(
+            cfg, "agent_exploration_temperature", 0.35
+        )
+        stagnation_threshold = self._cfg_int(cfg, "agent_stagnation_threshold", 2)
+        if (
+            self._stagnation_iterations >= stagnation_threshold
+            or self._consecutive_failures >= 2
+            or self._no_tool_iterations >= 1
+        ):
+            return max(base_temp, exploration_temp)
+        return base_temp
+
+    def _track_tool_usage(self, tool_name: str) -> None:
+        self._recent_tool_names.append(tool_name)
+        cfg = get_config()
+        window = max(3, self._cfg_int(cfg, "agent_tool_diversity_window", 8))
+        if len(self._recent_tool_names) > window:
+            self._recent_tool_names = self._recent_tool_names[-window:]
+
+    def _get_same_tool_streak(self) -> int:
+        if not self._recent_tool_names:
+            return 0
+        streak = 1
+        last = self._recent_tool_names[-1]
+        for tn in reversed(self._recent_tool_names[:-1]):
+            if tn != last:
+                break
+            streak += 1
+        return streak
+
+    def _refresh_exploration_state(self) -> None:
+        # Count only meaningful evidence to avoid execute-command traces
+        # (confidence=0.55) masking true stagnation. Stagnation resets only
+        # when real security findings (CVEs, URLs, signals, artifacts) appear.
+        meaningful_now = sum(
+            1 for e in self.state.evidence_log
+            if e.get("confidence", 0) >= _MEANINGFUL_EVIDENCE_THRESHOLD
+        )
+        if meaningful_now > self._last_evidence_count:
+            self._stagnation_iterations = 0
+        else:
+            self._stagnation_iterations += 1
+        self._last_evidence_count = meaningful_now
+
+    def _build_exploration_directive(self, phase: PipelinePhase) -> str:
+        cfg = get_config()
+        if not self._cfg_bool(cfg, "agent_exploration_mode", True):
+            return ""
+
+        intensity = self._cfg_float(cfg, "agent_exploration_intensity", 0.8)
+        stagnation_threshold = self._cfg_int(cfg, "agent_stagnation_threshold", 2)
+        max_same_streak = self._cfg_int(cfg, "agent_max_same_tool_streak", 3)
+        same_tool_streak = self._get_same_tool_streak()
+        window = max(3, self._cfg_int(cfg, "agent_tool_diversity_window", 8))
+        recent = self._recent_tool_names[-window:]
+        unique_recent = len(set(recent)) if recent else 0
+
+        should_push = (
+            self.state.iteration <= 2
+            or self._stagnation_iterations >= stagnation_threshold
+            or self._consecutive_failures >= 2
+            or self._no_tool_iterations >= 1
+            or same_tool_streak >= max_same_streak
+        )
+        if not should_push:
+            return ""
+
+        tactic_map: dict[PipelinePhase, list[str]] = {
+            PipelinePhase.RECON: [
+                "Run one passive and one active recon method in the same loop.",
+                "Switch discovery families: DNS -> HTTP fingerprint -> content discovery.",
+                "Prioritize unusual assets: admin panels, legacy hosts, debug endpoints.",
+            ],
+            PipelinePhase.ANALYSIS: [
+                "Mutate parameters aggressively (encoding, type confusion, boundary values).",
+                "Correlate endpoints, auth flows, and object IDs for privilege paths.",
+                "Generate at least one non-obvious hypothesis and test it immediately.",
+            ],
+            PipelinePhase.EXPLOIT: [
+                "Rotate payload families every failed attempt (SQLi -> SSTI -> auth logic).",
+                "Prefer impact proof over scanner output: state change, data access, or privilege gain.",
+                "Chain medium findings into one higher-impact attack path.",
+            ],
+            PipelinePhase.REPORT: [
+                "Convert strongest evidence into reproducible PoC steps with exact inputs.",
+                "Document what failed and why to avoid false positives.",
+            ],
+            PipelinePhase.COMPLETE: [],
+        }
+        tactics = tactic_map.get(phase, [])[:3]
+        if not tactics:
+            return ""
+
+        pressure = "HIGH" if intensity >= 0.75 else "MEDIUM"
+        lines = [
+            f"[SYSTEM: AGGRESSIVE EXPLORATION MODE — {pressure}]",
+            f"Phase={phase.value} | stagnation={self._stagnation_iterations} | "
+            f"same_tool_streak={same_tool_streak} | diversity={unique_recent}/{max(1, len(recent))}",
+            "You must avoid rigid repetitive behavior. Execute a novel, high-value next action now.",
+            "Exploration tactics:",
+        ]
+        for tactic in tactics:
+            lines.append(f"- {tactic}")
+
+        if same_tool_streak >= max_same_streak:
+            lines.append(
+                "MANDATORY: switch to a different tool family on the next action."
+            )
+        if self._no_tool_iterations >= 1:
+            lines.append("MANDATORY: reply with tool_call, not planning text.")
+
+        lines.append(
+            "Keep tests in-scope and non-destructive unless explicitly authorized."
+        )
+        return "\n".join(lines)
+
+    def _get_current_phase(self) -> PipelinePhase:
+        if self.pipeline:
+            return self.pipeline.get_current_phase()
+        return PipelinePhase.RECON
+
+    def _sync_phase_objectives(self, phase: PipelinePhase) -> None:
+        defaults = self._PHASE_OBJECTIVES.get(phase.value, [])
+        self.state.ensure_phase_objectives(phase.value, defaults)
+
+    def _update_objectives_from_session(self, phase: PipelinePhase) -> None:
+        if not self._session:
+            return
+        defaults = self._PHASE_OBJECTIVES.get(phase.value, [])
+        if len(defaults) < 3:
+            return
+
+        s = self._session
+        if phase == PipelinePhase.RECON:
+            if s.subdomains or s.live_hosts:
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if s.open_ports:
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if s.scan_count >= 3 or s.urls:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+        elif phase == PipelinePhase.ANALYSIS:
+            if s.technologies or s.urls:
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if s.injection_points:
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if s.vulnerabilities or len(self.state.evidence_log) >= 3:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+        elif phase == PipelinePhase.EXPLOIT:
+            if s.vulnerabilities:
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if any(
+                v.get("proof") or v.get("evidence") or v.get("poc_script_code")
+                for v in s.vulnerabilities
+            ):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if self._consecutive_failures <= 1 and self.state.tool_counts.get("total", 0) >= 3:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+        elif phase == PipelinePhase.REPORT:
+            if any(v.get("report_generated") for v in s.vulnerabilities):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if s.vulnerabilities:
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if "REPORT" in s.completed_phases:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+    def _update_objectives_from_tool(
+        self,
+        phase: PipelinePhase,
+        tool_name: str,
+        arguments: dict[str, Any],
+        success: bool,
+        result: dict[str, Any],
+        output_file: str | None,
+    ) -> None:
+        if not success:
+            return
+        defaults = self._PHASE_OBJECTIVES.get(phase.value, [])
+        if len(defaults) < 3:
+            return
+
+        cmd = ""
+        if tool_name == "execute":
+            cmd = str(arguments.get("command", "")).lower()
+
+        if phase == PipelinePhase.RECON:
+            if tool_name in ("execute", "web_search", "browser_action"):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if cmd and any(hint in cmd for hint in self._RECON_BIN_HINTS):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if cmd and any(hint in cmd for hint in ("nmap", "masscan", "naabu", "rustscan")):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if output_file and output_file.startswith("output/"):
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+        elif phase == PipelinePhase.ANALYSIS:
+            if tool_name in ("execute", "read_file", "browser_action", "web_search"):
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if cmd and any(
+                hint in cmd for hint in (
+                    "sqlmap", "dalfox", "nuclei", "xsser", "ffuf", "wfuzz", "nikto"
+                )
+            ):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if self.state.evidence_log:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+        elif phase == PipelinePhase.EXPLOIT:
+            if tool_name in self._EXPLOIT_HEAVY_TOOLS or tool_name == "execute":
+                self.state.mark_objective(phase.value, defaults[0], "done")
+            if output_file or re.search(
+                r"(FLAG\{[^}\n]+\}|CVE-\d{4}-\d+)",
+                self._extract_result_text(result),
+                re.IGNORECASE,
+            ):
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if self._consecutive_failures <= 1:
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+        elif phase == PipelinePhase.REPORT:
+            if tool_name == "create_vulnerability_report":
+                self.state.mark_objective(phase.value, defaults[0], "done")
+                self.state.mark_objective(phase.value, defaults[1], "done")
+            if output_file and output_file.startswith("output/"):
+                self.state.mark_objective(phase.value, defaults[2], "done")
+
+    def _extract_result_text(self, result: dict[str, Any] | Any) -> str:
+        if result is None:
+            return ""
+        if isinstance(result, str):
+            return result
+        if not isinstance(result, dict):
+            return str(result)
+
+        parts: list[str] = []
+        for key in (
+            "stdout", "stderr", "result", "summary", "error", "message",
+            "note", "findings",
+        ):
+            value = result.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                list_lines = [str(x) for x in value[:8]]
+                if list_lines:
+                    parts.append("\n".join(list_lines))
+            elif isinstance(value, dict):
+                for sub_key in ("summary", "result", "error", "message", "note"):
+                    sub_val = value.get(sub_key)
+                    if isinstance(sub_val, str):
+                        parts.append(sub_val)
+        merged = "\n".join(p for p in parts if p).strip()
+        return merged[:7000]
+
+    def _record_evidence_from_result(
+        self,
+        phase: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        result: dict[str, Any],
+        success: bool,
+        output_file: str | None,
+    ) -> None:
+        if output_file:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Artifact saved to {output_file}",
+                confidence=0.9,
+                artifact=output_file,
+                tags=["artifact", "file"],
+            )
+
+        blob = self._extract_result_text(result)
+        if not blob:
+            return
+
+        if not success:
+            err = str(result.get("error", "")).strip() if isinstance(result, dict) else ""
+            if err:
+                self.state.add_evidence(
+                    phase=phase,
+                    source_tool=tool_name,
+                    summary=f"Execution error observed: {err[:240]}",
+                    confidence=0.4,
+                    tags=["error"],
+                )
+            return
+
+        for flag in re.findall(r"(?:FLAG|flag)\{[^}\n]{1,200}\}", blob):
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Flag pattern captured: {flag}",
+                confidence=1.0,
+                tags=["flag", "ctf"],
+            )
+
+        for cve in re.findall(r"CVE-\d{4}-\d{4,7}", blob, re.IGNORECASE):
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"CVE reference discovered: {cve.upper()}",
+                confidence=0.75,
+                tags=["cve", "vulnerability"],
+            )
+
+        url_matches = list(
+            dict.fromkeys(
+                re.findall(r"https?://[^\s\"'<>]+", blob, re.IGNORECASE)
+            )
+        )
+        for url in url_matches[:4]:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Interesting URL collected: {url}",
+                confidence=0.65,
+                tags=["url", "endpoint"],
+            )
+
+        port_hits = list(
+            dict.fromkeys(
+                re.findall(
+                    r"\b\d{1,5}/(?:tcp|udp)\b|\b(?:\d{1,3}\.){3}\d{1,3}:\d{1,5}\b",
+                    blob,
+                    re.IGNORECASE,
+                )
+            )
+        )
+        for hit in port_hits[:4]:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Service/port evidence: {hit}",
+                confidence=0.7,
+                tags=["network", "recon"],
+            )
+
+        high_signal_lines = []
+        signal_re = re.compile(
+            r"(?i)(vulnerab|injection|xss|sqli|idor|ssrf|rce|auth bypass|token|secret|credential)"
+        )
+        for line in blob.splitlines():
+            line = line.strip()
+            if not line or len(line) < 12:
+                continue
+            if signal_re.search(line):
+                high_signal_lines.append(line[:260])
+            if len(high_signal_lines) >= 3:
+                break
+        for line in high_signal_lines:
+            self.state.add_evidence(
+                phase=phase,
+                source_tool=tool_name,
+                summary=f"Security signal: {line}",
+                confidence=0.7,
+                tags=["signal"],
+            )
+
+        if tool_name == "execute":
+            cmd = str(arguments.get("command", "")).strip()
+            if cmd:
+                self.state.add_evidence(
+                    phase=phase,
+                    source_tool=tool_name,
+                    summary=f"Executed command: {cmd[:220]}",
+                    confidence=0.55,
+                    tags=["execution", "trace"],
+                )
+
+    def _build_phase_gate_note(self, tool_name: str, success: bool) -> str:
+        phase = self._get_current_phase()
+        phase_name = phase.value
+        phase_evidence = [
+            e for e in self.state.evidence_log
+            if str(e.get("phase", "")).upper() == phase_name
+        ]
+        cfg = get_config()
+        explore_mode = self._cfg_bool(cfg, "agent_exploration_mode", True)
+        intensity = self._cfg_float(cfg, "agent_exploration_intensity", 0.8)
+        min_required_evidence = 1 if explore_mode and intensity >= 0.7 else 2
+
+        if (
+            phase in (PipelinePhase.RECON, PipelinePhase.ANALYSIS)
+            and tool_name in self._EXPLOIT_HEAVY_TOOLS
+            and len(phase_evidence) < min_required_evidence
+        ):
+            return (
+                f"[SYSTEM: PHASE GATE]\n"
+                f"You used exploit-heavy tool '{tool_name}' while phase is {phase_name} "
+                "with insufficient evidence.\n"
+                "Before further exploitation, collect stronger artifacts first "
+                "(live hosts, open ports, endpoints, injection points)."
+            )
+
+        if (
+            phase == PipelinePhase.EXPLOIT
+            and not success
+            and self._consecutive_failures >= 2
+        ):
+            return (
+                "[SYSTEM: PHASE GATE]\n"
+                "Exploit attempts are failing repeatedly. Pivot strategy now:\n"
+                "- Switch tool family (web -> network, or network -> browser)\n"
+                "- Use evidence_log to choose a different vector\n"
+                "- Avoid repeating same payload/command."
+            )
+        return ""
+
+    def _check_tool_budget(self, tool_name: str, phase: str) -> str:
+        """Return a soft budget warning if this tool is over/near its phase limit.
+
+        Uses _PHASE_TOOL_BUDGETS from pipeline.py. Returns empty string when no
+        constraint exists or budget is not yet reached. Never blocks execution.
+        """
+        budget = _PHASE_TOOL_BUDGETS.get(phase, {}).get(tool_name)
+        if budget is None:
+            return ""
+        usage = self.state.get_phase_tool_count(phase, tool_name)
+        if budget == 0 and usage >= 1:
+            return (
+                f"[TOOL BUDGET] '{tool_name}' is not recommended in {phase} phase "
+                f"(used {usage}×). Switch to a phase-appropriate tool."
+            )
+        if usage >= budget:
+            return (
+                f"[TOOL BUDGET] '{tool_name}' has exhausted its {phase} phase budget "
+                f"({usage}/{budget}). Switch approach or tool family."
+            )
+        if budget > 0 and usage >= int(budget * 0.75):
+            return (
+                f"[TOOL BUDGET] '{tool_name}' is at {usage}/{budget} of {phase} budget. "
+                "Plan remaining calls carefully."
+            )
+        return ""
+
+    def _extract_shell_command_candidate(
+        self,
+        content_acc: str,
+        thinking_acc: str = "",
+    ) -> str | None:
+        """Extract a safe shell command from hallucinated text/code blocks."""
+        command_prefix_re = re.compile(
+            r"^(?:"
+            r"nmap|naabu|masscan|httpx|ffuf|dirsearch|gobuster|katana|hakrawler|"
+            r"subfinder|amass|assetfinder|wpscan|nikto|sqlmap|ghauri|dalfox|"
+            r"curl|wget|python|python3|bash|sh|ls|cat|find|grep"
+            r")\b",
+            re.IGNORECASE,
+        )
+
+        def _safe(cmd: str) -> str | None:
+            cleaned = cmd.strip().lstrip("$").strip()
+            if not cleaned:
+                return None
+            if len(cleaned) > 2000:
+                return None
+            has_danger, _ = has_dangerous_patterns(cleaned)
+            if has_danger:
+                return None
+            return cleaned
+
+        for block in self._FAKE_CMD_BLOCK_RE.findall(content_acc):
+            if not block:
+                continue
+            lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+            if not lines:
+                continue
+
+            picked: list[str] = []
+            for line in lines:
+                if line.startswith("#"):
+                    continue
+                line = line.lstrip("-*0123456789. ").strip()
+                if not picked and not command_prefix_re.match(line.lstrip("$")):
+                    continue
+                picked.append(line)
+                if not line.endswith("\\"):
+                    break
+
+            if picked:
+                candidate = " ".join(
+                    part.rstrip("\\").strip() for part in picked if part.strip()
+                )
+                safe = _safe(candidate)
+                if safe:
+                    return safe
+
+        for raw_line in (content_acc + "\n" + thinking_acc).splitlines():
+            line = raw_line.strip().lstrip("-*0123456789. ").strip()
+            if not line:
+                continue
+            line = line.lstrip("$").strip()
+            if command_prefix_re.match(line):
+                safe = _safe(line)
+                if safe:
+                    return safe
+
+        return None
+
+    def _build_watchdog_tool_call(
+        self,
+        content_acc: str,
+        thinking_acc: str,
+        phase: PipelinePhase,
+    ) -> dict[str, Any]:
+        """Build a deterministic fallback tool_call when model is text-only."""
+        candidate_cmd = self._extract_shell_command_candidate(
+            content_acc=content_acc,
+            thinking_acc=thinking_acc,
+        )
+        if candidate_cmd:
+            return {
+                "id": f"watchdog_execute_{self.state.iteration}",
+                "type": "function",
+                "function": {
+                    "name": "execute",
+                    "arguments": {"command": candidate_cmd},
+                },
+            }
+
+        fallback_path = "output"
+        if phase == PipelinePhase.REPORT:
+            fallback_path = "vulnerabilities"
+
+        return {
+            "id": f"watchdog_list_files_{self.state.iteration}",
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "arguments": {"path": fallback_path},
+            },
+        }
+
+    def _compute_quality_scores(self) -> dict[str, Any]:
+        """Compute lightweight quality scores for finding confidence tracking."""
+        evidence = self.state.evidence_log
+        tags = [tag for ev in evidence for tag in ev.get("tags", [])]
+
+        artifact_count = sum(
+            1 for ev in evidence if ev.get("artifact") or "artifact" in ev.get("tags", [])
+        )
+        execution_count = sum(
+            1 for ev in evidence if "execution" in ev.get("tags", []) or "trace" in ev.get("tags", [])
+        )
+        high_conf_count = sum(
+            1 for ev in evidence if float(ev.get("confidence", 0.0)) >= 0.75
+        )
+        signal_count = tags.count("signal")
+        cve_count = tags.count("cve")
+        flag_count = tags.count("flag")
+        error_count = tags.count("error")
+
+        vuln_count = len(self._session.vulnerabilities) if self._session else 0
+        report_count = 0
+        if self._session:
+            report_count = sum(
+                1 for v in self._session.vulnerabilities if v.get("report_generated")
+            )
+
+        evidence_score = min(
+            1.0,
+            (artifact_count * 0.18)
+            + (high_conf_count * 0.10)
+            + (max(0, len(evidence) - error_count) * 0.02),
+        )
+        reproducibility_score = min(
+            1.0,
+            (execution_count * 0.08)
+            + (artifact_count * 0.12)
+            + (report_count * 0.20),
+        )
+        impact_score = min(
+            1.0,
+            (flag_count * 0.50)
+            + (vuln_count * 0.15)
+            + (cve_count * 0.08)
+            + (signal_count * 0.04),
+        )
+        overall = (
+            (evidence_score * 0.40)
+            + (reproducibility_score * 0.35)
+            + (impact_score * 0.25)
+        )
+
+        return {
+            "evidence": round(evidence_score, 3),
+            "reproducibility": round(reproducibility_score, 3),
+            "impact": round(impact_score, 3),
+            "overall": round(overall, 3),
+            "counts": {
+                "evidence": len(evidence),
+                "artifacts": artifact_count,
+                "executions": execution_count,
+                "vulnerabilities": vuln_count,
+                "reports": report_count,
+                "flags": flag_count,
+            },
+        }
+
+    def _build_quality_scoreboard(self, phase: PipelinePhase) -> str:
+        scores = self._compute_quality_scores()
+        counts = scores.get("counts", {})
+        if int(counts.get("evidence", 0)) == 0 and self.state.iteration <= 1:
+            return ""
+
+        lines = [
+            "[SYSTEM: QUALITY SCOREBOARD]",
+            (
+                f"Phase={phase.value} | "
+                f"Evidence={scores['evidence']:.2f} | "
+                f"Reproducibility={scores['reproducibility']:.2f} | "
+                f"Impact={scores['impact']:.2f} | "
+                f"Overall={scores['overall']:.2f}"
+            ),
+            (
+                "Counts: "
+                f"evidence={counts.get('evidence', 0)}, "
+                f"artifacts={counts.get('artifacts', 0)}, "
+                f"executions={counts.get('executions', 0)}, "
+                f"vulns={counts.get('vulnerabilities', 0)}, "
+                f"reports={counts.get('reports', 0)}"
+            ),
+        ]
+
+        if phase in (PipelinePhase.EXPLOIT, PipelinePhase.REPORT):
+            if float(scores["reproducibility"]) < 0.45:
+                lines.append(
+                    "Gap: reproducibility is low. Run one concrete PoC command and save artifact output now."
+                )
+            if float(scores["impact"]) < 0.35:
+                lines.append(
+                    "Gap: impact proof is weak. Prioritize evidence showing real access/state change."
+                )
+        elif phase in (PipelinePhase.RECON, PipelinePhase.ANALYSIS):
+            if float(scores["evidence"]) < 0.30:
+                lines.append(
+                    "Gap: evidence coverage low. Collect fresh host/port/endpoint artifacts before pivoting."
+                )
+
+        return "\n".join(lines)
+
+    def _build_recovery_state_context(self) -> str:
+        """Build compact state snapshot for post-crash recovery retries."""
+        phase = self._get_current_phase()
+        quality = self._compute_quality_scores()
+        lines = [
+            "[SYSTEM: RECOVERY STATE]",
+            (
+                f"Phase={phase.value} | Iteration={self.state.iteration} | "
+                f"Target={self.state.active_target or 'none'}"
+            ),
+            (
+                f"Quality overall={quality['overall']:.2f} "
+                f"(evidence={quality['evidence']:.2f}, repro={quality['reproducibility']:.2f}, "
+                f"impact={quality['impact']:.2f})"
+            ),
+        ]
+
+        pending = [
+            o for o in self.state.objective_queue
+            if str(o.get("phase", "")).upper() == phase.value
+            and str(o.get("status", "pending")).lower() != "done"
+        ]
+        pending = sorted(
+            pending, key=lambda x: int(x.get("priority", 0)), reverse=True
+        )[:3]
+        if pending:
+            lines.append("Top pending objectives:")
+            for obj in pending:
+                lines.append(f"- {obj.get('title', '')}")
+
+        recent_tools = [
+            t for t in reversed(self.state.tool_history)
+            if t.status == "success"
+        ][:2]
+        if recent_tools:
+            lines.append("Recent successful tools:")
+            for entry in recent_tools:
+                lines.append(f"- {entry.tool_name}")
+
+        recent_evidence = list(reversed(self.state.evidence_log))[:3]
+        if recent_evidence:
+            lines.append("Recent evidence:")
+            for ev in recent_evidence:
+                lines.append(f"- [{ev.get('source_tool', 'tool')}] {ev.get('summary', '')}")
+
+        lines.append(
+            "MANDATORY: first response after recovery must include at least one tool_call."
+        )
+        return "\n".join(lines)
+
     def get_progress(self) -> dict[str, Any]:
         """Return progress data for the /api/progress endpoint."""
         session = self._session
+        quality_scores = self._compute_quality_scores()
         progress = {
             "target": self.state.active_target or "none",
             "iteration": self.state.iteration,
             "max_iterations": self.state.max_iterations,
             "tool_counts": self.state.tool_counts,
             "consecutive_failures": self._consecutive_failures,
+            "objectives": {
+                "total": len(self.state.objective_queue),
+                "completed": sum(
+                    1
+                    for o in self.state.objective_queue
+                    if str(o.get("status", "")).lower() == "done"
+                ),
+            },
+            "evidence_count": len(self.state.evidence_log),
+            "quality_scores": quality_scores,
             "session": None,
         }
         if session:

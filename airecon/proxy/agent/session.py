@@ -25,9 +25,6 @@ logger = logging.getLogger("airecon.agent.session")
 
 SESSIONS_DIR = Path.home() / ".airecon" / "sessions"
 
-# Similarity threshold for vulnerability deduplication (0-1)
-VULN_SIMILARITY_THRESHOLD = 0.7
-
 # ---------------------------------------------------------------------------
 # Injection point extraction
 # ---------------------------------------------------------------------------
@@ -77,8 +74,9 @@ def _guess_injection_type(param: str, value: str) -> str:
     # Suffix/prefix heuristics
     if re.search(r"_id$|^id_|id$", p):
         return "IDOR"
-    # Numeric value in any param → likely IDOR
-    if value and re.match(r"^\d{1,10}$", value):
+    # Numeric value in any param → likely IDOR (require 4+ digits to avoid
+    # matching version numbers, status codes, boolean flags like 0/1)
+    if value and re.match(r"^\d{4,10}$", value):
         return "IDOR"
     return "INJECT"
 
@@ -96,6 +94,9 @@ def _extract_injection_points(url: str) -> list[dict[str, Any]]:
     points: list[dict[str, Any]] = []
     try:
         p = urlparse(url)
+        # Only process http/https URLs — skip javascript:, data:, ftp:, etc.
+        if p.scheme not in ("http", "https"):
+            return points
         # Normalize base so dedup keys are consistent regardless of case or
         # trailing slash variations (e.g. /api/users/ == /api/users).
         base = urlunparse((
@@ -194,6 +195,12 @@ def _calculate_similarity(v1: str, v2: str) -> float:
     v1_lower = v1.lower()
     v2_lower = v2.lower()
 
+    # Two empty strings are technically identical but represent nothing — do not
+    # treat as duplicates, as this would silently drop any second report with
+    # an empty finding field.
+    if not v1_lower or not v2_lower:
+        return 0.0
+
     if v1_lower == v2_lower:
         return 1.0
 
@@ -226,13 +233,14 @@ def _is_duplicate_vulnerability(
         new_vuln: dict, existing_vulns: list[dict]) -> bool:
     """Check if a vulnerability is a duplicate of an existing one.
 
-    Uses vuln_similarity_threshold from config (default: VULN_SIMILARITY_THRESHOLD).
+    Uses vuln_similarity_threshold from config (default: 0.7).
     """
     try:
         from ..config import get_config
         threshold = get_config().vuln_similarity_threshold
     except Exception:
-        threshold = VULN_SIMILARITY_THRESHOLD
+        from ..config import DEFAULT_CONFIG
+        threshold = DEFAULT_CONFIG["vuln_similarity_threshold"]
 
     new_finding = new_vuln.get("finding", "")
     new_target = new_vuln.get("target", "")
@@ -426,8 +434,13 @@ def update_from_parsed_output(
         r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)+$"
     )
     _URL_RE = re.compile(r"^https?://")
+    _ANY_URL_RE = re.compile(r"https?://\S+")
     _HOST_PORT_RE = re.compile(r"^([a-zA-Z0-9.\-]+):(\d+)")
-    _PORT_PROTO_RE = re.compile(r"^(\d+)/(tcp|udp)\s+(open|filtered)")
+    # Match nmap port lines in multiple formats:
+    #   "80/tcp   open  http"           (plain nmap -sV)
+    #   "| 80/tcp  open  http"          (nmap script block with pipe prefix)
+    #   "  443/tcp filtered https"      (leading whitespace variants)
+    _PORT_PROTO_RE = re.compile(r"(?:^|[|\s])(\d+)/(tcp|udp)\s+(open|filtered)")
     _SEVERITY_RE = re.compile(
         r"^\[(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]",
         re.IGNORECASE)
@@ -459,9 +472,18 @@ def update_from_parsed_output(
                 session.live_hosts.append(url)
             continue
 
-        # 3. Plain URL → urls collection + auto-extract injection points
+        # 3. URL (plain or embedded in prefixed line) → urls collection
+        # + auto-extract injection points.
+        url_token: str | None = None
         if _URL_RE.match(item_stripped):
-            url = _normalize_url(item_stripped.split()[0])
+            url_token = item_stripped.split()[0]
+        else:
+            embedded = _ANY_URL_RE.search(item_stripped)
+            if embedded:
+                url_token = embedded.group(0)
+
+        if url_token:
+            url = _normalize_url(url_token.rstrip(".,;:)]}>\"'"))
             if url not in session.urls:
                 session.urls.append(url)
             # Extract any testable parameters from the URL
@@ -482,7 +504,8 @@ def update_from_parsed_output(
             continue
 
         # 5. port/proto state service (nmap-style) → open_ports under target
-        pp_match = _PORT_PROTO_RE.match(item_stripped)
+        # Use search() (not match()) to handle pipe-prefixed nmap script output.
+        pp_match = _PORT_PROTO_RE.search(item_stripped)
         if pp_match:
             port_str = pp_match.group(1)
             if port_str.isdigit():
@@ -509,13 +532,11 @@ def session_to_context(session: SessionData) -> str:
     """Format session data as a context string for injection into conversation."""
     target_label = session.target or "unknown target"
     parts = [
-        f"[SYSTEM: PREVIOUS SESSION DATA — Session {
-            session.session_id} for {target_label}]"]
+        f"[SYSTEM: PREVIOUS SESSION DATA — Session {session.session_id} for {target_label}]"
+    ]
     parts.append(f"Session created: {session.created_at}")
     parts.append(
-        f"Tools previously run: {
-            ', '.join(
-                session.tools_run) if session.tools_run else 'none'}"
+        f"Tools previously run: {', '.join(session.tools_run) if session.tools_run else 'none'}"
     )
     parts.append(f"Total scans: {session.scan_count}")
 
@@ -598,10 +619,7 @@ def session_to_context(session: SessionData) -> str:
             parts.append(f"  - Chain: {' -> '.join(chain.get('steps', []))}")
 
     if session.completed_phases:
-        parts.append(
-            f"Completed phases: {
-                ', '.join(
-                    session.completed_phases)}")
+        parts.append(f"Completed phases: {', '.join(session.completed_phases)}")
 
     if session.auth_cookies or session.auth_tokens:
         auth_info = f"Auth state: {session.auth_type or 'unknown'} — "

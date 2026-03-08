@@ -95,11 +95,8 @@ _BUGBOUNTY_INDICATORS_MSG = (
     "hackerone",
     "bugcrowd",
     "intigriti",
-    "scope",
-    "program",
     "public domain",
     "external assessment",
-    "recon",
 )
 _PUBLIC_DOMAIN_RE = re.compile(
     r"\b([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+"
@@ -175,22 +172,24 @@ def _is_pentest_target(target: str | None = None,
 # ------------------------------------------------------------------
 # Heavy skills embedded in the full prompt context.
 # NOT used in CTF mode to save ~85-100K tokens.
+# Keys are relative paths from the skills/ directory (subdir/filename.md)
+# so same-named files in different subdirectories don't collide.
 _FULL_EMBED_SKILLS = {
-    "install.md",
-    "scripting.md",
-    "tool_catalog.md",
-    "full_recon_sop.md",
-    "browser_automation.md",
-    "nuclei_doc.md",
-    "sqlmap_doc.md",
-    "dalfox_doc.md",
-    "nmap_doc.md",
-    "semgrep_doc.md",
+    "tools/install.md",
+    "tools/scripting.md",
+    "tools/tool_catalog.md",
+    "reconnaissance/full_recon.md",
+    "tools/browser_automation.md",
+    "tools/nuclei.md",
+    "tools/sqlmap.md",
+    "tools/dalfox.md",
+    "tools/nmap.md",
+    "tools/semgrep.md",
 }
 
 # Minimal set embedded for CTF mode (only what's needed for local exploitation)
 _CTF_EMBED_SKILLS = {
-    "install.md",
+    "tools/install.md",
 }
 
 
@@ -212,7 +211,8 @@ def _load_local_skills(ctf_mode: bool = False) -> str:
     reference_parts: list[str] = []
 
     for path in sorted(skills_dir.rglob("*.md")):
-        if path.name in embed_set:
+        rel = path.relative_to(skills_dir).as_posix()
+        if rel in embed_set:
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
                 embedded_parts.append(
@@ -269,13 +269,30 @@ def _load_skill_keywords() -> dict[str, str]:
 # Keyword → skill file mapping for auto-loading (loaded from data/skills.json)
 _SKILL_KEYWORDS: dict[str, str] = _load_skill_keywords()
 
+# Phase → preferred skill subdirectories for phase-aware score boosting.
+# Skills in a preferred directory receive +2 bonus on their keyword score,
+# ensuring phase-appropriate skills rank higher. Only skills with at least
+# 1 keyword hit are boosted (zero-hit skills are never injected).
+_PHASE_SKILL_DIRECTORIES: dict[str, set[str]] = {
+    "RECON":    {"reconnaissance", "tools", "protocols"},
+    "ANALYSIS": {"vulnerabilities", "frameworks", "technologies", "protocols"},
+    "EXPLOIT":  {"payloads", "vulnerabilities", "postexploit", "frameworks", "tools", "ctf"},
+    "REPORT":   set(),
+    "COMPLETE": set(),
+}
 
-def auto_load_skills_for_message(user_message: str) -> tuple[str, list[str]]:
+
+def auto_load_skills_for_message(
+    user_message: str, phase: str = ""
+) -> tuple[str, list[str]]:
     """Auto-detect relevant skills from user message and return their content.
 
     Skills are ranked by keyword match count so the most relevant ones are
     always loaded first. Ties are broken alphabetically for stable ordering.
     Limit is 4 to avoid context explosion — always the top-4 most relevant.
+
+    When `phase` is provided, skills in the preferred directories for that
+    phase receive a +2 score bonus to promote phase-appropriate content.
 
     Returns a tuple of (skill_context_string, list_of_loaded_skill_names).
     """
@@ -294,6 +311,16 @@ def auto_load_skills_for_message(user_message: str) -> tuple[str, list[str]]:
 
     if not skill_scores:
         return "", []
+
+    # Phase-aware boost: preferred-directory skills get +2 bonus.
+    # Only applied if there are already keyword hits (no zero-score injection).
+    if phase:
+        preferred = _PHASE_SKILL_DIRECTORIES.get(phase.upper(), set())
+        if preferred:
+            for skill_path in list(skill_scores.keys()):
+                skill_dir = skill_path.split("/")[0]
+                if skill_dir in preferred:
+                    skill_scores[skill_path] += 2
 
     # Sort by score descending, then alphabetically for stable tie-breaking.
     # This ensures the most relevant skills are always loaded — not random.
@@ -317,8 +344,7 @@ def auto_load_skills_for_message(user_message: str) -> tuple[str, list[str]]:
                 if len(content) > limit:
                     content = (
                         content[:limit]
-                        + f"\n... (truncated at {limit} chars, use read_file for full content: {
-                            skill_file.absolute().as_posix()})"
+                        + f"\n... (truncated at {limit} chars, use read_file for full content: {skill_file.absolute().as_posix()})"
                     )
                 parts.append(f"[AUTO-LOADED SKILL: {skill_rel}]\n{content}")
                 loaded_names.append(skill_file.stem)

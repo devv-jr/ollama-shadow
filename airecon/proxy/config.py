@@ -55,7 +55,13 @@ DEFAULT_CONFIG = {
     "agent_repeat_tool_call_limit": 2,
     "agent_missing_tool_retry_limit": 2,
     "agent_plan_revision_interval": 30,
-    "allow_destructive_testing": True,
+    "agent_exploration_mode": True,
+    "agent_exploration_intensity": 0.8,
+    "agent_exploration_temperature": 0.35,
+    "agent_stagnation_threshold": 2,
+    "agent_tool_diversity_window": 8,
+    "agent_max_same_tool_streak": 3,
+    "allow_destructive_testing": False,
     "browser_page_load_delay": 1.0,
     "ollama_keep_alive": "30m",
     "searxng_url": "http://localhost:8080",
@@ -104,6 +110,12 @@ class Config:
     agent_repeat_tool_call_limit: int
     agent_missing_tool_retry_limit: int
     agent_plan_revision_interval: int
+    agent_exploration_mode: bool
+    agent_exploration_intensity: float
+    agent_exploration_temperature: float
+    agent_stagnation_threshold: int
+    agent_tool_diversity_window: int
+    agent_max_same_tool_streak: int
 
     # Safety
     allow_destructive_testing: bool
@@ -247,6 +259,37 @@ class Config:
                         key, val, expected_type.__name__, default_val,
                     )
                     merged[key] = default_val
+
+        # Bounds validation: reset out-of-range values to defaults.
+        _BOUNDS: dict[str, tuple[float | None, float | None]] = {
+            "vuln_similarity_threshold": (0.0, 1.0),
+            "ollama_timeout": (1.0, None),
+            "command_timeout": (1.0, None),
+            "agent_max_tool_iterations": (1, None),
+            "agent_repeat_tool_call_limit": (1, None),
+            "agent_missing_tool_retry_limit": (0, None),
+            "agent_plan_revision_interval": (1, None),
+            "agent_exploration_intensity": (0.0, 1.0),
+            "agent_exploration_temperature": (0.0, 2.0),
+            "agent_stagnation_threshold": (1, None),
+            "agent_tool_diversity_window": (3, None),
+            "agent_max_same_tool_streak": (1, None),
+            "ollama_num_ctx": (1024, None),
+            "ollama_num_ctx_small": (1024, None),
+            "ollama_num_predict": (1, None),
+        }
+        for bkey, (lo, hi) in _BOUNDS.items():
+            bval = merged.get(bkey)
+            if bval is None:
+                continue
+            out_of_range = (lo is not None and bval < lo) or (hi is not None and bval > hi)
+            if out_of_range:
+                default_bval = DEFAULT_CONFIG[bkey]
+                logger.warning(
+                    "Config: '%s' value %r is out of allowed range [%s, %s] — using default %r",
+                    bkey, bval, lo, hi, default_bval,
+                )
+                merged[bkey] = default_bval
 
         return cls(**merged)
 

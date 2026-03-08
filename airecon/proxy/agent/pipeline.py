@@ -111,6 +111,46 @@ DEFAULT_PHASES: dict[PipelinePhase, PhaseConfig] = {
 }
 
 
+# Soft tool budgets per phase. 0 = strongly discouraged, None = unlimited.
+# These are warning thresholds, NOT hard blocks. Exceeding budget injects
+# a guidance message to steer the agent toward phase-appropriate tools.
+_PHASE_TOOL_BUDGETS: dict[str, dict[str, int]] = {
+    "RECON": {
+        "quick_fuzz": 10,
+        "advanced_fuzz": 5,
+        "deep_fuzz": 0,
+        "caido_automate": 5,
+        "create_vulnerability_report": 2,
+    },
+    "ANALYSIS": {
+        "advanced_fuzz": 15,
+        "deep_fuzz": 5,
+        "create_vulnerability_report": 5,
+    },
+    "EXPLOIT": {
+        "advanced_fuzz": 50,
+        "deep_fuzz": 25,
+        "quick_fuzz": 60,
+        "caido_automate": 40,
+    },
+    "REPORT": {
+        "execute": 10,
+        "advanced_fuzz": 0,
+        "deep_fuzz": 0,
+        "quick_fuzz": 0,
+    },
+}
+
+# One-line skill directory hints injected into the phase prompt so the LLM
+# knows which skill categories are relevant for the active phase.
+_PHASE_SKILL_HINTS: dict[str, str] = {
+    "RECON": "Phase skills: reconnaissance/, tools/nmap.md, tools/nuclei.md, protocols/",
+    "ANALYSIS": "Phase skills: vulnerabilities/, frameworks/, technologies/",
+    "EXPLOIT": "Phase skills: payloads/, vulnerabilities/, postexploit/, tools/",
+    "REPORT": "Use create_vulnerability_report for all confirmed findings.",
+}
+
+
 class PipelineEngine:
     """Phase-based pipeline engine for systematic security testing.
 
@@ -145,8 +185,8 @@ class PipelineEngine:
                     self._phase_prompts[phase] = self._default_prompt(phase)
             except Exception as e:
                 logger.warning(
-                    f"Failed to load phase prompt for {
-                        phase.value}: {e}")
+                    f"Failed to load phase prompt for {phase.value}: {e}"
+                )
                 self._phase_prompts[phase] = self._default_prompt(phase)
 
     def _default_prompt(self, phase: PipelinePhase) -> str:
@@ -246,8 +286,9 @@ class PipelineEngine:
                     )
             except Exception as _e:
                 logger.debug("Could not check workspace artifacts: %s", _e)
-            # Fallback to scan_count if workspace not accessible
-            if _has_output_files or getattr(session, "scan_count", 0) >= 3:
+            # Fallback: require at least 5 tool executions (not just 3) to avoid
+            # trivially satisfying RECON completion via failed calls alone.
+            if _has_output_files or getattr(session, "scan_count", 0) >= 5:
                 met.append("recon_artifacts_saved")
 
         elif phase == PipelinePhase.ANALYSIS:
@@ -338,10 +379,13 @@ class PipelineEngine:
         completed = ", ".join(
             self.session.completed_phases) if self.session.completed_phases else "none"
 
+        skill_hint = _PHASE_SKILL_HINTS.get(current.value, "")
+        skill_line = f"\n{skill_hint}" if skill_hint else ""
         return (
             f"{base_prompt}\n\n"
             f"Completed phases: {completed}\n"
             f"{progress}"
+            f"{skill_line}"
         )
 
     # Tools reserved for EXPLOIT/REPORT that should not be used earlier
@@ -373,13 +417,15 @@ class PipelineEngine:
             total = len(config.transition_criteria) if config else 0
             return (
                 f"[PHASE GUIDANCE] Tool '{tool_name}' is optimised for the EXPLOIT phase. "
-                f"Current phase: {
-                    current.value} ({
-                    len(criteria_met)}/{total} transition criteria met). "
+                f"Current phase: {current.value} ({len(criteria_met)}/{total} transition criteria met). "
                 "Proceed only if you have specific evidence justifying early exploitation. "
                 "Otherwise, complete the current phase objectives first."
             )
         return None
+
+    def get_tool_budget(self, phase: str, tool_name: str) -> int | None:
+        """Return soft budget for tool_name in phase, or None if unconstrained."""
+        return _PHASE_TOOL_BUDGETS.get(phase, {}).get(tool_name)
 
     def get_transition_prompt(self, new_phase: PipelinePhase) -> str:
         """Get a transition announcement prompt."""
@@ -392,6 +438,5 @@ class PipelineEngine:
             f"\n[PIPELINE TRANSITION → {new_phase.value}]\n"
             f"Phase objective: {config.objective}\n"
             f"Recommended tools for this phase: {tools}\n"
-            f"You are now in the {
-                new_phase.value} phase. Focus on the objective above.\n"
+            f"You are now in the {new_phase.value} phase. Focus on the objective above.\n"
         )

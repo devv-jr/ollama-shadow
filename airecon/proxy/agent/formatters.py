@@ -16,6 +16,7 @@ logger = logging.getLogger("airecon.agent")
 
 # Cache for --help output per tool binary (avoids re-running)
 _help_cache: dict[str, str] = {}
+_help_lookup_inflight: set[str] = set()
 
 # ---------------------------------------------------------------------------
 # Inline security hints injected into tool output
@@ -88,13 +89,12 @@ _PORT_OPEN_RE = re.compile(
     r"|\[(\d{2,5})\]",                       # httpx: [80]
 )
 
-# Short tech names (< 5 chars: "go", "php", "lua", "java") need non-alphanumeric
-# boundaries to avoid false positives — e.g. "go" matching "google" or "django".
-# Longer names are specific enough for plain substring matching.
+# All tech names use non-alphanumeric boundary matching to avoid false positives.
+# e.g. "go" must not match "google", "flask" must not match "flasked",
+# "django" must not match "djangorestframework".
 _TECH_HINT_RE: dict[str, re.Pattern[str]] = {
     tech: re.compile(rf"(?<![a-z0-9]){re.escape(tech)}(?![a-z0-9])")
     for tech in _TECH_HINTS
-    if len(tech) < 5
 }
 
 
@@ -114,13 +114,12 @@ def _extract_security_hints(output: str) -> list[str]:
             hints.append(f"  PORT {port}: {_PORT_HINTS[port]}")
             seen.add(port)
 
-    # Technology-based hints — use word-boundary regex for short names
+    # Technology-based hints — all use word-boundary regex to prevent false matches
     for tech, hint in _TECH_HINTS.items():
         if tech in seen:
             continue
-        pattern = _TECH_HINT_RE.get(tech)
-        found = bool(pattern.search(out_lower)) if pattern else (tech in out_lower)
-        if found:
+        pattern = _TECH_HINT_RE[tech]
+        if pattern.search(out_lower):
             hints.append(f"  TECH {tech.upper()}: {hint}")
             seen.add(tech)
 
@@ -178,9 +177,7 @@ class _FormatterMixin:
                 "sudo"
             ):
                 parts.append(
-                    f"TIP: Retry with elevated privileges: sudo {
-                        command.strip()[
-                            :80]}"
+                    f"TIP: Retry with elevated privileges: sudo {command.strip()[:80]}"
                 )
             elif "connection refused" in combined or "connection timed out" in combined:
                 parts.append(
@@ -252,12 +249,10 @@ class _FormatterMixin:
                         parts.append(f"  {item}")
                     if parsed.total_count > len(parsed.items):
                         parts.append(
-                            f"  ... and {parsed.total_count -
-                                         len(parsed.items)} more"
+                            f"  ... and {parsed.total_count - len(parsed.items)} more"
                         )
                 parts.append(
-                    f"\nTOTAL: {
-                        parsed.total_count} items. Full output saved to file."
+                    f"\nTOTAL: {parsed.total_count} items. Full output saved to file."
                 )
                 body = "\n".join(parts)
                 if len(body) > MAX_TOTAL:
@@ -326,19 +321,13 @@ class _FormatterMixin:
                     cmd).strip()
                 detail = f": {cmd[:100]}"
             elif rec.tool_name == "browser_action":
-                detail = f" action={
-                    rec.arguments.get(
-                        'action',
-                        '?')} url={
-                    rec.arguments.get(
-                        'url',
-                        '')}"
+                action = rec.arguments.get("action", "?")
+                url = rec.arguments.get("url", "")
+                detail = f" action={action} url={url}"
             elif rec.tool_name == "web_search":
                 detail = f": {rec.arguments.get('query', '')[:60]}"
             lines.append(
-                f"  {i}. [{status}] {
-                    rec.tool_name}{detail} ({
-                    rec.duration:.1f}s)"
+                f"  {i}. [{status}] {rec.tool_name}{detail} ({rec.duration:.1f}s)"
             )
 
         return "\n".join(lines)
@@ -401,6 +390,9 @@ class _FormatterMixin:
     def _auto_help_lookup(self, tool_binary: str) -> str | None:
         """Run <tool> --help inside Docker and extract valid flags.
 
+        In async runtime, this method warms the cache in the background and
+        returns cached results when available.
+
         Returns compact help text or None if lookup fails.
         Caches results to avoid re-running for the same tool.
         """
@@ -412,72 +404,95 @@ class _FormatterMixin:
         if not engine:
             return None
 
-        # Use thread pool to avoid asyncio event loop issues
-        import concurrent.futures
+        def _blocking_lookup() -> str | None:
+            # Use thread pool to avoid asyncio event loop issues
+            import concurrent.futures
 
-        try:
-
-            def _run_help():
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+            try:
+                def _run_help():
                     try:
-                        return loop.run_until_complete(
-                            engine.execute_tool(
-                                "execute",
-                                {"command": f"{tool_binary} --help 2>&1 | head -60"},
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            return loop.run_until_complete(
+                                engine.execute_tool(
+                                    "execute",
+                                    {"command": f"{tool_binary} --help 2>&1 | head -60"},
+                                )
                             )
-                        )
-                    finally:
-                        loop.close()
-                except Exception:
-                    return None
+                        finally:
+                            loop.close()
+                    except Exception:
+                        return None
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_run_help)
-                result = future.result(timeout=15)
-        except Exception:
-            _help_cache[tool_binary] = ""
-            return None
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(_run_help)
+                    result = future.result(timeout=15)
+            except Exception:
+                return None
 
-        if result is None:
-            return None
-        stdout = result.get("stdout", "") or result.get("result", "") or ""
-        if not stdout.strip() or len(stdout) < 20:
-            _help_cache[tool_binary] = ""
-            return None
+            if result is None:
+                return None
+            stdout = result.get("stdout", "") or result.get("result", "") or ""
+            if not stdout.strip() or len(stdout) < 20:
+                return None
 
-        # Extract flag lines (lines starting with -, or containing --)
-        lines = stdout.strip().split("\n")
-        flag_lines = []
-        usage_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("-") or "  -" in line:
-                flag_lines.append(stripped)
-            elif stripped.lower().startswith("usage:") or stripped.lower().startswith(
-                "synopsis"
-            ):
-                usage_lines.append(stripped)
+            # Extract flag lines (lines starting with -, or containing --)
+            lines = stdout.strip().split("\n")
+            flag_lines: list[str] = []
+            usage_lines: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("-") or "  -" in line:
+                    flag_lines.append(stripped)
+                elif stripped.lower().startswith("usage:") or stripped.lower().startswith(
+                    "synopsis"
+                ):
+                    usage_lines.append(stripped)
 
-        if not flag_lines and not usage_lines:
-            # No flags found — return first 30 lines as-is
-            compact = "\n".join(lines[:30])
-            _help_cache[tool_binary] = compact
+            if not flag_lines and not usage_lines:
+                # No flags found — return first 30 lines as-is
+                return "\n".join(lines[:30])
+
+            parts: list[str] = []
+            if usage_lines:
+                parts.append("USAGE: " + usage_lines[0])
+            if flag_lines:
+                parts.append("VALID FLAGS:")
+                for flag in flag_lines[:25]:  # Cap at 25 flags
+                    parts.append(f"  {flag}")
+
+            compact = "\n".join(parts)
+            logger.info(
+                "Auto-help lookup for '%s': %d flags found",
+                tool_binary,
+                len(flag_lines),
+            )
             return compact
 
-        parts = []
-        if usage_lines:
-            parts.append("USAGE: " + usage_lines[0])
-        if flag_lines:
-            parts.append("VALID FLAGS:")
-            for f in flag_lines[:25]:  # Cap at 25 flags
-                parts.append(f"  {f}")
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
 
-        compact = "\n".join(parts)
-        _help_cache[tool_binary] = compact
-        logger.info(
-            f"Auto-help lookup for '{tool_binary}': {
-                len(flag_lines)} flags found"
-        )
+        # Async runtime: warm cache in background without blocking the loop.
+        if running_loop is not None:
+            if tool_binary not in _help_lookup_inflight:
+                _help_lookup_inflight.add(tool_binary)
+
+                async def _populate_cache() -> None:
+                    try:
+                        compact = await asyncio.to_thread(_blocking_lookup)
+                        _help_cache[tool_binary] = compact or ""
+                    except Exception:
+                        _help_cache[tool_binary] = ""
+                    finally:
+                        _help_lookup_inflight.discard(tool_binary)
+
+                running_loop.create_task(_populate_cache())
+            return None
+
+        # Sync runtime: resolve immediately.
+        compact = _blocking_lookup()
+        _help_cache[tool_binary] = compact or ""
         return compact

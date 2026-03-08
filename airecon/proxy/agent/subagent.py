@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, AsyncIterator
 
-from .ollama import OllamaClient
-from .config import get_config
-from .agent.models import AgentEvent
-from .agent.session import SessionData, save_session
+from ..ollama import OllamaClient
+from ..config import get_config
+from .models import AgentEvent
+from .session import SessionData, save_session
 
 logger = logging.getLogger("airecon.subagent")
 
@@ -79,7 +79,7 @@ class SubagentCoordinator:
         Constructs an AIRecon default dependency graph (Recon -> Analyzer -> Exploiter ... -> Reporter)
         and streams findings recursively.
         """
-        from .agent_graph import create_default_graph
+        from .agent_graph import create_default_graph  # same package
 
         self.session.target = target
         logger.info(f"Starting subagent graph on {target}")
@@ -87,7 +87,7 @@ class SubagentCoordinator:
         graph = create_default_graph(target, prompt)
         graph.ollama = OllamaClient(model=self.cfg.ollama_model)
 
-        from .docker import DockerEngine
+        from ..docker import DockerEngine
         graph.engine = self.engine if self.engine else DockerEngine()
 
         try:
@@ -154,6 +154,7 @@ class ParallelAgentRunner:
         is set so that all sibling coordinators stop at their next iteration.
         """
         self._cancel_event.clear()
+        self._results = {}  # Reset results so previous run data is not leaked
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
         async def run_single(
@@ -172,6 +173,8 @@ class ParallelAgentRunner:
             async with semaphore:
                 try:
                     return await run_single(target, coordinator)
+                except asyncio.CancelledError:
+                    raise  # Never swallow task cancellation
                 except Exception as exc:
                     logger.error(
                         "Agent for %s failed: %s — setting cancel event for siblings",
@@ -191,4 +194,4 @@ class ParallelAgentRunner:
                 target, session = result
                 self._results[target] = session
 
-        return self._results
+        return dict(self._results)  # return a copy so callers cannot mutate internal state
