@@ -1,4 +1,7 @@
-from airecon.proxy.ollama import _detect_model_capabilities_from_show
+from unittest.mock import patch
+import ollama as _ollama
+
+from airecon.proxy.ollama import _detect_model_capabilities_from_show, OllamaClient
 
 
 def test_prefers_show_metadata_for_thinking_and_tools() -> None:
@@ -40,3 +43,31 @@ def test_none_capabilities_field_handled_gracefully() -> None:
     thinking, native_tools = _detect_model_capabilities_from_show("model:tag", show_data)
     assert thinking is True
     assert native_tools is False
+
+
+def test_detect_capabilities_returns_none_on_connection_error() -> None:
+    """_detect_capabilities() returns None (not False) on transient Ollama error."""
+    with patch("ollama.Client") as mock_client_cls:
+        mock_client_cls.return_value.show.side_effect = ConnectionRefusedError("refused")
+        client = OllamaClient.__new__(OllamaClient)
+        client._host = "http://127.0.0.1:11434"
+        client.model = "qwen3:32b"
+        result = client._detect_capabilities()
+        assert result is None
+
+
+def test_init_keeps_config_defaults_when_detection_fails() -> None:
+    """When ollama show fails, OllamaClient keeps config defaults (not forced False)."""
+    with patch("ollama.Client") as mock_client_cls, \
+         patch("ollama.AsyncClient"), \
+         patch("airecon.proxy.ollama.get_config") as mock_cfg:
+        mock_cfg.return_value.ollama_url = "http://127.0.0.1:11434"
+        mock_cfg.return_value.ollama_model = "qwen3:32b"
+        mock_cfg.return_value.ollama_supports_thinking = True
+        mock_cfg.return_value.ollama_supports_native_tools = True
+        mock_cfg.return_value.ollama_timeout = 30
+        mock_client_cls.return_value.show.side_effect = ConnectionRefusedError("refused")
+        client = OllamaClient()
+        # Detection failed → should keep config defaults (True), not override with False
+        assert client.supports_thinking is True
+        assert client.supports_native_tools is True
