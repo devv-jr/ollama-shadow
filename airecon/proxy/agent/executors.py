@@ -99,7 +99,7 @@ class _ExecutorMixin:
             return False
 
         binary = self._extract_command_binary(arguments.get("command", ""))
-        return binary in _RECON_SUBDOMAIN_BINS
+        return binary in _RECON_SUBDOMAIN_BINS or binary in _RECON_PORT_SCAN_BINS
 
     async def _execute_local_browser_tool(
         self,
@@ -111,7 +111,7 @@ class _ExecutorMixin:
         args_key = self._normalize_args_for_dedup(tool_name, arguments)
         allow_repeat = arguments.get("action") in [
             "wait", "scroll_down", "scroll_up", "get_console_logs", "get_network_logs", "execute_js",
-            "goto", "click", "type", "press"
+            "goto", "click", "type", "press_key"
         ]
 
         if not allow_repeat:
