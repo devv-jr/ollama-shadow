@@ -109,20 +109,19 @@ async def _ddg_search(query: str, max_results: int) -> dict[str, Any]:
             return list(ddgs.text(query, max_results=max_results))
 
     # Serialize all DDG calls through a lock so concurrent agents don't bypass
-    # the rate-limit interval.
-    async with _get_ddg_lock():
-        # Rate-limit guard
-        now = time.monotonic()
-        wait = _DDG_MIN_INTERVAL - (now - _last_ddg_search_time)
-        if wait > 0:
-            await asyncio.sleep(wait)
-
+    # the rate-limit interval. The lock is held for the duration of the wait
+    # AND the actual search to prevent concurrent requests from slipping
+    # through after the gate.
     last_err: Exception | None = None
     for attempt in range(3):
         try:
             async with _get_ddg_lock():
+                now = time.monotonic()
+                wait = _DDG_MIN_INTERVAL - (now - _last_ddg_search_time)
+                if wait > 0:
+                    await asyncio.sleep(wait)
                 _last_ddg_search_time = time.monotonic()
-            results = await asyncio.to_thread(_search)
+                results = await asyncio.to_thread(_search)
             break
         except RatelimitException as e:
             last_err = e

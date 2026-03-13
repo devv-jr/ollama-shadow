@@ -86,7 +86,7 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
     # browser_action actions that are always interactive and must not be
     # deduped
     _DEDUP_EXEMPT_BROWSER_ACTIONS = frozenset({
-        "click", "type", "press", "scroll_down", "scroll_up",
+        "click", "type", "press_key", "scroll_down", "scroll_up",
         "wait", "get_console_logs", "get_network_logs",
     })
     # Max number of times the same CTF-local challenge can be seen before CTF
