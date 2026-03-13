@@ -62,14 +62,17 @@ class AgentLoop(_ValidatorMixin, _FormatterMixin,
     # Detects plain-text shell commands written outside any code block.
     # Two patterns are considered unambiguous:
     #   1. cd /workspace/<target> && ...  — AIRecon workspace invocation pattern
-    #   2. curl/wget followed by an http(s) URL on its own line
+    #   2. curl/wget followed by an http(s) URL AND a shell operator (&&, |, ;, \)
+    #      The shell-operator requirement avoids false positives on explanation text
+    #      like "you can use curl https://target.com to verify" which legitimately
+    #      starts a line but is not a hallucinated command invocation.
     # Both patterns indicate the LLM is "writing" commands rather than calling
     # the execute tool.
     _FAKE_PLAIN_CMD_RE = re.compile(
         r"(?m)^[ \t]*"
         r"(?:"
         r"cd\s+/workspace/\S+\s*&&"                    # cd /workspace/target &&
-        r"|(?:curl|wget)\s+https?://\S+"               # curl/wget https://...
+        r"|(?:curl|wget)\s+https?://\S+\s*(?:&&|\||;|\\)" # curl/wget https://... followed by shell operator (&& | ; or line-continuation \)
         r")",
     )
 
