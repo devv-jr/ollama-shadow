@@ -74,14 +74,19 @@ class OllamaClient:
         self._supports_thinking = cfg.ollama_supports_thinking
         self._supports_native_tools = cfg.ollama_supports_native_tools
 
-        # If config has auto-detect (True by default), run ONE metadata call
-        # and apply results to whichever capabilities need detection.
+        # If config has auto-detect (True by default), run ONE metadata call.
+        # Only override capabilities when detection succeeds — on transient
+        # failure we keep the config default (True = optimistic/force-on) so
+        # a brief Ollama hiccup at startup does not silently disable thinking
+        # for the whole session.
         if cfg.ollama_supports_thinking is True or cfg.ollama_supports_native_tools is True:
-            detected_think, detected_tools = self._detect_capabilities()
-            if cfg.ollama_supports_thinking is True:
-                self._supports_thinking = detected_think
-            if cfg.ollama_supports_native_tools is True:
-                self._supports_native_tools = detected_tools
+            detected = self._detect_capabilities()
+            if detected is not None:
+                detected_think, detected_tools = detected
+                if cfg.ollama_supports_thinking is True:
+                    self._supports_thinking = detected_think
+                if cfg.ollama_supports_native_tools is True:
+                    self._supports_native_tools = detected_tools
 
         logger.info(
             f"Initializing Ollama SDK client for host: {host}, model: {self.model}, "
@@ -94,11 +99,11 @@ class OllamaClient:
         self._client = ollama.AsyncClient(
             host=host, timeout=cfg.ollama_timeout)
 
-    def _detect_capabilities(self) -> tuple[bool, bool]:
+    def _detect_capabilities(self) -> tuple[bool, bool] | None:
         """Detect model capabilities via Ollama `show` metadata.
 
-        Returns (False, False) on any error — the agent falls back to
-        text-based tool parsing which works for all models.
+        Returns (thinking, native_tools) on success, or None on any error.
+        Callers that receive None should keep their existing config defaults.
         """
         try:
             sync_client = ollama.Client(host=self._host)
@@ -107,11 +112,11 @@ class OllamaClient:
         except Exception as e:
             logger.warning(
                 "Could not inspect model metadata via `ollama show` for %s: %s. "
-                "Disabling thinking and native-tool mode (safe default).",
+                "Keeping config defaults for thinking/native-tool mode.",
                 self.model,
                 e,
             )
-            return False, False
+            return None
 
     @property
     def supports_thinking(self) -> bool:
@@ -150,7 +155,6 @@ class OllamaClient:
         """
         import asyncio
 
-        last_err: Exception | None = None
         for attempt in range(max_retries + 1):
             try:
                 response = await self._client.chat(
@@ -181,14 +185,9 @@ class OllamaClient:
                         f"Transient Ollama error in complete() (attempt "
                         f"{attempt + 1}/{max_retries + 1}), retrying in {wait}s: {e}"
                     )
-                    last_err = e
                     await asyncio.sleep(wait)
                     continue
                 raise
-
-        raise RuntimeError(
-            f"Ollama complete() failed after {max_retries + 1} attempts: {last_err}"
-        )
 
     async def chat_stream(
         self,
@@ -218,7 +217,6 @@ class OllamaClient:
         if options:
             kwargs["options"] = options
 
-        last_err: Exception | None = None
         for attempt in range(max_retries + 1):
             try:
                 async for chunk in await self._client.chat(**kwargs):
@@ -245,7 +243,6 @@ class OllamaClient:
                         f"Ollama ResponseError (attempt {attempt + 1}/{max_retries + 1}), "
                         f"retrying in {wait}s: {e.error}"
                     )
-                    last_err = e
                     await asyncio.sleep(wait)
                     continue
                 logger.error(
@@ -274,12 +271,7 @@ class OllamaClient:
                         f"Transient Ollama error (attempt {attempt + 1}/{max_retries + 1}), "
                         f"retrying in {wait}s: {e}"
                     )
-                    last_err = e
                     await asyncio.sleep(wait)
                     continue
                 logger.exception(f"Unexpected SDK error: {e}")
                 raise
-
-        raise RuntimeError(
-            f"Ollama connection failed after {max_retries + 1} attempts: {last_err}"
-        )
