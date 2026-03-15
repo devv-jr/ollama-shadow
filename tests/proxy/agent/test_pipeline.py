@@ -1,6 +1,6 @@
 import pytest
-from airecon.proxy.agent.pipeline import PipelineEngine, PipelinePhase
-from airecon.proxy.agent.session import SessionData
+from ollama_shadow.proxy.agent.pipeline import PipelineEngine, PipelinePhase
+from ollama_shadow.proxy.agent.session import SessionData
 
 
 @pytest.fixture

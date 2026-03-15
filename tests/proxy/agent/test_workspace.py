@@ -1,6 +1,6 @@
 import pytest
 import json
-from airecon.proxy.agent.workspace import _WorkspaceMixin
+from ollama_shadow.proxy.agent.workspace import _WorkspaceMixin
 
 
 class DummyState:
@@ -52,7 +52,7 @@ def test_normalize_tool_args_string_json(workspace):
 
 
 def test_save_tool_output(workspace, tmp_path, mocker):
-    mocker.patch("airecon.proxy.agent.workspace.get_workspace_root",
+    mocker.patch("ollama_shadow.proxy.agent.workspace.get_workspace_root",
                  return_value=tmp_path)
 
     # Save standard output creates a .txt and .json
@@ -77,7 +77,7 @@ def test_save_tool_output(workspace, tmp_path, mocker):
 
 
 def test_save_tool_output_skipped_tools(workspace, tmp_path, mocker):
-    mocker.patch("airecon.proxy.agent.workspace.get_workspace_root",
+    mocker.patch("ollama_shadow.proxy.agent.workspace.get_workspace_root",
                  return_value=tmp_path)
 
     # Skip creating output txt for noisy tools, just save to command history

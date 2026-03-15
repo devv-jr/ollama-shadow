@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from airecon.proxy.agent.executors import _ExecutorMixin
+from ollama_shadow.proxy.agent.executors import _ExecutorMixin
 
 
 class DummyState:
@@ -31,7 +31,7 @@ def agent():
 
 @pytest.mark.asyncio
 async def test_execute_local_browser_tool(agent, mocker):
-    mocker.patch('airecon.proxy.agent.executors.browser_action',
+    mocker.patch('ollama_shadow.proxy.agent.executors.browser_action',
                  return_value={"title": "Test Page"})
 
     success, duration, result, out_file = await agent._execute_local_browser_tool("browser_action", {"action": "goto", "url": "http://test.com"})
@@ -44,7 +44,7 @@ async def test_execute_local_browser_tool(agent, mocker):
 
 @pytest.mark.asyncio
 async def test_execute_filesystem_tool_read(agent, mocker):
-    mocker.patch('airecon.proxy.agent.executors.read_file', return_value={
+    mocker.patch('ollama_shadow.proxy.agent.executors.read_file', return_value={
                  "success": True, "result": "file content"})
 
     success, duration, result, out_file = await agent._execute_filesystem_tool("read_file", {"path": "test.txt"})
@@ -59,10 +59,10 @@ async def test_execute_web_search_tool(agent, mocker):
     async def mock_search(*args, **kwargs):
         return {"success": True, "result": "Search Results String"}
 
-    mocker.patch('airecon.proxy.agent.executors.web_search',
+    mocker.patch('ollama_shadow.proxy.agent.executors.web_search',
                  side_effect=mock_search)
 
-    with patch('airecon.proxy.agent.executors.get_workspace_root', return_value=MagicMock()):
+    with patch('ollama_shadow.proxy.agent.executors.get_workspace_root', return_value=MagicMock()):
         with patch('builtins.open', mocker.mock_open()):
             success, duration, result, saved_path = await agent._execute_web_search_tool({"query": "test query"})
 
@@ -73,7 +73,7 @@ async def test_execute_web_search_tool(agent, mocker):
 
 @pytest.mark.asyncio
 async def test_execute_report_tool(agent, mocker):
-    mocker.patch('airecon.proxy.agent.executors.create_vulnerability_report',
+    mocker.patch('ollama_shadow.proxy.agent.executors.create_vulnerability_report',
                  return_value={"success": True, "finding_id": "VULN-1"})
 
     success, duration, result, out_file = await agent._execute_report_tool("create_vulnerability_report", {"title": "Test Vuln"})

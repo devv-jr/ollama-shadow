@@ -1,4 +1,4 @@
-name: AIRecon CI
+name: Ollama Shadow CI
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
         run: ruff check . --fix
         
       - name: Security Scan with Bandit
-        run: bandit -r airecon/ -x "**/tests/**,**/__pycache__/**" --skip B105,B107 -ll
+        run: bandit -r ollama-shadow/ -x "**/tests/**,**/__pycache__/**" --skip B105,B107 -ll
 
       - name: Type Check with Pyright
         uses: jakebailey/pyright-action@v2
@@ -54,7 +54,7 @@ jobs:
 
       - name: Run Tests with Coverage
         run: |
-          pytest tests/ --junitxml=junit/test-results.xml --cov=airecon --cov-report=xml --cov-fail-under=52
+          pytest tests/ --junitxml=junit/test-results.xml --cov=ollama-shadow --cov-report=xml --cov-fail-under=52
 
       - name: Upload Test Results
         if: always()

@@ -1,16 +1,16 @@
-# AIRecon Installation Guide
+# Ollama Shadow Installation Guide
 
 ## Table of Contents
 
 1. [System Requirements](#1-system-requirements)
 2. [Install Ollama](#2-install-ollama)
 3. [Pull a Model](#3-pull-a-model)
-4. [Install AIRecon](#4-install-airecon)
+4. [Install Ollama Shadow](#4-install-ollama-shadow)
 5. [Configure PATH](#5-configure-path)
 6. [Build the Docker Sandbox](#6-build-the-docker-sandbox)
 7. [Verify the Installation](#7-verify-the-installation)
 8. [First Run](#8-first-run)
-9. [Updating AIRecon](#9-updating-airecon)
+9. [Updating Ollama Shadow](#9-updating-ollama-shadow)
 10. [Remote Ollama Setup](#10-remote-ollama-setup)
 11. [Troubleshooting](#11-troubleshooting)
 
@@ -18,7 +18,7 @@
 
 ## 1. System Requirements
 
-> **Model size requirement:** AIRecon requires a minimum of **30B parameters**. Models below 30B frequently fail to follow scope rules, hallucinate tool output, and produce incomplete function calls.
+> **Model size requirement:** Ollama Shadow requires a minimum of **30B parameters**. Models below 30B frequently fail to follow scope rules, hallucinate tool output, and produce incomplete function calls.
 
 ### Minimum viable (qwen3:30b-a3b — MoE)
 | Component | Minimum |
@@ -75,7 +75,7 @@ ollama serve &
 
 ## 3. Pull a Model
 
-Pull the model you intend to use **before** starting AIRecon:
+Pull the model you intend to use **before** starting Ollama Shadow:
 
 ```bash
 # Minimum viable — 30B MoE (~18 GB download, needs 16 GB VRAM)
@@ -106,14 +106,14 @@ ollama list
 
 ---
 
-## 4. Install AIRecon
+## 4. Install Ollama Shadow
 
-AIRecon uses [Poetry](https://python-poetry.org/) for dependency management and builds a Python wheel that is installed to your user path.
+Ollama Shadow uses [Poetry](https://python-poetry.org/) for dependency management and builds a Python wheel that is installed to your user path.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/pikpikcu/airecon.git
-cd airecon
+git clone https://github.com/pikpikcu/ollama-shadow.git
+cd ollama-shadow
 
 # 2. Run the installer
 ./install.sh
@@ -122,21 +122,21 @@ cd airecon
 ### What `install.sh` does
 
 1. **Checks for Poetry** — installs it via pip if missing
-2. **Cleans previous installs** — removes old AIRecon versions to avoid conflicts
+2. **Cleans previous installs** — removes old Ollama Shadow versions to avoid conflicts
 3. **Installs Python dependencies** — `poetry install` (reads `pyproject.toml`)
 4. **Installs Playwright Chromium** — `poetry run playwright install chromium` (required for browser automation)
-5. **Builds the wheel** — `poetry build` → creates `dist/airecon-*.whl`
-6. **Installs to user site** — `pip install dist/airecon-*.whl --user` → binary at `~/.local/bin/airecon`
+5. **Builds the wheel** — `poetry build` → creates `dist/ollama-shadow-*.whl`
+6. **Installs to user site** — `pip install dist/ollama-shadow-*.whl --user` → binary at `~/.local/bin/ollama-shadow`
 
 ---
 
 ## 5. Configure PATH
 
-The `airecon` command is installed to `~/.local/bin/`. If this is not in your PATH, the command will not be found.
+The `ollama-shadow` command is installed to `~/.local/bin/`. If this is not in your PATH, the command will not be found.
 
 ```bash
 # Check if it is already in PATH
-which airecon
+which ollama-shadow
 
 # If not found, add to your shell profile:
 
@@ -149,28 +149,28 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 
 # Verify
-airecon --version
+ollama-shadow --version
 ```
 
 ---
 
 ## 6. Build the Docker Sandbox
 
-The Docker sandbox is the Kali Linux execution environment where all shell commands run. You must build it before starting AIRecon.
+The Docker sandbox is the Kali Linux execution environment where all shell commands run. You must build it before starting Ollama Shadow.
 
 ```bash
-cd airecon
+cd ollama-shadow
 
 # Build the sandbox image (takes 5–15 minutes on first build)
-docker build -t airecon-sandbox airecon/containers/
+docker build -t ollama-shadow-sandbox ollama-shadow/containers/
 
 # Verify the image exists
-docker images | grep airecon-sandbox
+docker images | grep ollama-shadow-sandbox
 ```
 
 > The sandbox includes: `nmap`, `naabu`, `masscan`, `subfinder`, `amass`, `httpx`, `nuclei`, `nikto`, `wapiti`, `ffuf`, `feroxbuster`, `sqlmap`, `dalfox`, `gau`, `waybackurls`, `katana`, `arjun`, full SecLists, FuzzDB, and 40+ more tools. It runs as user `pentester` with passwordless `sudo`.
 
-If `docker_auto_build: true` is set in your config, AIRecon will attempt to build the image automatically at startup if it is not found. Manual build is more reliable.
+If `docker_auto_build: true` is set in your config, Ollama Shadow will attempt to build the image automatically at startup if it is not found. Manual build is more reliable.
 
 ---
 
@@ -179,20 +179,20 @@ If `docker_auto_build: true` is set in your config, AIRecon will attempt to buil
 Run this checklist after installing:
 
 ```bash
-# 1. Check AIRecon version
-airecon --version
+# 1. Check Ollama Shadow version
+ollama-shadow --version
 
 # 2. Check Ollama is running and model is available
 ollama list
 
 # 3. Check Docker image
-docker images | grep airecon-sandbox
+docker images | grep ollama-shadow-sandbox
 
 # 4. Test Playwright (should open and close Chromium silently)
 python3 -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); b.close(); p.stop(); print('Playwright OK')"
 
 # 5. Check config file location
-cat ~/.airecon/config.json 2>/dev/null || echo "Will be created on first run"
+cat ~/.ollama-shadow/config.json 2>/dev/null || echo "Will be created on first run"
 ```
 
 ---
@@ -204,11 +204,11 @@ cat ~/.airecon/config.json 2>/dev/null || echo "Will be created on first run"
 cd ~/pentest-projects/
 
 # Start the TUI
-airecon start
+ollama-shadow start
 ```
 
 On first run:
-- `~/.airecon/config.json` is created with default values
+- `~/.ollama-shadow/config.json` is created with default values
 - The `workspace/` directory is created in your current working directory
 - The Docker sandbox container is started
 
@@ -216,7 +216,7 @@ On first run:
 
 ```bash
 # Edit config
-nano ~/.airecon/config.json
+nano ~/.ollama-shadow/config.json
 
 # Change "ollama_model" to match what you pulled, e.g.:
 # "ollama_model": "qwen3:32b"
@@ -228,10 +228,10 @@ See [Configuration Reference](configuration.md) for all options.
 
 ---
 
-## 9. Updating AIRecon
+## 9. Updating Ollama Shadow
 
 ```bash
-cd airecon
+cd ollama-shadow
 
 # Pull latest changes
 git pull
@@ -257,7 +257,7 @@ OLLAMA_HOST=0.0.0.0 ollama serve
 # Environment="OLLAMA_HOST=0.0.0.0"
 ```
 
-**In `~/.airecon/config.json` on your workstation:**
+**In `~/.ollama-shadow/config.json` on your workstation:**
 ```json
 {
     "ollama_url": "http://<server-ip>:11434",
@@ -271,7 +271,7 @@ Make sure port 11434 is open in the server's firewall.
 
 ## 11. Troubleshooting
 
-### `airecon: command not found`
+### `ollama-shadow: command not found`
 `~/.local/bin` is not in PATH. Follow [Step 5](#5-configure-path).
 
 ### `ollama: connection refused`
@@ -280,15 +280,15 @@ Ollama is not running. Start it: `ollama serve` or `sudo systemctl start ollama`
 ### `docker: Cannot connect to the Docker daemon`
 Docker daemon is not running: `sudo systemctl start docker`.
 
-### `airecon-sandbox` image not found at startup
-Build manually: `docker build -t airecon-sandbox airecon/containers/`
+### `ollama-shadow-sandbox` image not found at startup
+Build manually: `docker build -t ollama-shadow-sandbox ollama-shadow/containers/`
 
 ### `Model not found` / model name mismatch
 Run `ollama list` and copy the exact model name (including tag) into `ollama_model` in config.
 
 ### `Ollama returned HTML error page` / server crashed
 
-**Root cause:** Ollama ran out of VRAM and crashed. When this happens, Ollama's HTTP server returns an HTML error page instead of a JSON response, which AIRecon cannot parse.
+**Root cause:** Ollama ran out of VRAM and crashed. When this happens, Ollama's HTTP server returns an HTML error page instead of a JSON response, which Ollama Shadow cannot parse.
 
 This is the most common error on sessions with long context history or when running large models near VRAM limits.
 
@@ -353,7 +353,7 @@ Or use a smaller model. See the `Ollama returned HTML error page` section above 
 ### Playwright error: `executable doesn't exist`
 Reinstall Playwright browsers:
 ```bash
-cd airecon
+cd ollama-shadow
 poetry run playwright install chromium
 ```
 

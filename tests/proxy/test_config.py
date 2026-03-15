@@ -1,5 +1,5 @@
 import json
-from airecon.proxy.config import Config, DEFAULT_CONFIG, get_config, reload_config
+from ollama_shadow.proxy.config import Config, DEFAULT_CONFIG, get_config, reload_config
 
 
 def test_config_default_initialization(tmp_path):
@@ -33,9 +33,9 @@ def test_config_file_loading(tmp_path):
 
 
 def test_config_env_overrides(tmp_path, monkeypatch):
-    monkeypatch.setenv("AIRECON_PROXY_PORT", "9999")
-    monkeypatch.setenv("AIRECON_OLLAMA_ENABLE_THINKING", "false")
-    monkeypatch.setenv("AIRECON_COMMAND_TIMEOUT", "120.5")
+    monkeypatch.setenv("OLLAMA_SHADOW_PROXY_PORT", "9999")
+    monkeypatch.setenv("OLLAMA_SHADOW_OLLAMA_ENABLE_THINKING", "false")
+    monkeypatch.setenv("OLLAMA_SHADOW_COMMAND_TIMEOUT", "120.5")
 
     cfg = Config.load(tmp_path / "missing_config.json")
 
@@ -45,7 +45,7 @@ def test_config_env_overrides(tmp_path, monkeypatch):
 
 
 def test_config_invalid_env_types_ignored(tmp_path, monkeypatch):
-    monkeypatch.setenv("AIRECON_PROXY_PORT", "not-a-number")
+    monkeypatch.setenv("OLLAMA_SHADOW_PROXY_PORT", "not-a-number")
 
     cfg = Config.load(tmp_path / "missing_config.json")
     # Should ignore the invalid int conversion and keep default

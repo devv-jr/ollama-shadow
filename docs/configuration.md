@@ -1,4 +1,4 @@
-# AIRecon Configuration Reference
+# Ollama Shadow Configuration Reference
 
 ## Table of Contents
 
@@ -21,18 +21,18 @@
 
 | Path | Purpose |
 |------|---------|
-| `~/.airecon/config.json` | Primary config (auto-created on first run) |
+| `~/.ollama-shadow/config.json` | Primary config (auto-created on first run) |
 
-On first run, if no config file exists, AIRecon writes the defaults to `~/.airecon/config.json`. Edit this file to customize behavior.
+On first run, if no config file exists, Ollama Shadow writes the defaults to `~/.ollama-shadow/config.json`. Edit this file to customize behavior.
 
 ```bash
 # View current config
-cat ~/.airecon/config.json
+cat ~/.ollama-shadow/config.json
 
 # Edit
-nano ~/.airecon/config.json
+nano ~/.ollama-shadow/config.json
 # or
-code ~/.airecon/config.json
+code ~/.ollama-shadow/config.json
 ```
 
 ---
@@ -55,7 +55,7 @@ code ~/.airecon/config.json
     "proxy_host": "127.0.0.1",
     "proxy_port": 3000,
     "command_timeout": 900.0,
-    "docker_image": "airecon-sandbox",
+    "docker_image": "ollama-shadow-sandbox",
     "docker_auto_build": true,
     "tool_response_role": "tool",
     "deep_recon_autostart": true,
@@ -120,7 +120,7 @@ The model name exactly as shown in `ollama list`. Must include the tag.
 
 Controls output randomness. This is the single most impactful setting for agent reliability.
 
-| Value | Effect on AIRecon |
+| Value | Effect on Ollama Shadow |
 |-------|------------------|
 | `0.0` | Fully deterministic. Same input = same output every time. |
 | `0.1`–`0.15` | **Recommended.** Strict instruction following. Minimal hallucination. Model respects scope rules. |
@@ -203,7 +203,7 @@ When enabled, the TUI shows the model's internal reasoning process in the thinki
 ### `deep_recon_autostart`
 **Type:** bool | **Default:** `true`
 
-When `true`, if the user inputs **only** a bare domain name (e.g., just `example.com` with nothing else), AIRecon automatically expands it into a full deep recon prompt:
+When `true`, if the user inputs **only** a bare domain name (e.g., just `example.com` with nothing else), Ollama Shadow automatically expands it into a full deep recon prompt:
 
 ```
 Perform a comprehensive full deep recon and vulnerability scan on example.com. Use all available tools.
@@ -283,12 +283,12 @@ Most models work correctly with `"tool"`. If you see the model failing to parse 
 ## 5. Docker Sandbox
 
 ### `docker_image`
-**Type:** string | **Default:** `"airecon-sandbox"`
+**Type:** string | **Default:** `"ollama-shadow-sandbox"`
 
 The name of the Docker image used as the execution sandbox. Must be built before first use.
 
 ```bash
-docker build -t airecon-sandbox airecon/containers/
+docker build -t ollama-shadow-sandbox ollama-shadow/containers/
 ```
 
 If you build with a different tag, update this setting accordingly.
@@ -298,7 +298,7 @@ If you build with a different tag, update this setting accordingly.
 ### `docker_auto_build`
 **Type:** bool | **Default:** `true`
 
-If `true`, AIRecon attempts to build the Docker image automatically at startup if it is not found. This can fail in restricted environments. Manual build is more reliable.
+If `true`, Ollama Shadow attempts to build the Docker image automatically at startup if it is not found. This can fail in restricted environments. Manual build is more reliable.
 
 ---
 
@@ -389,7 +389,7 @@ The URL of your SearXNG instance. If set, the `web_search` tool uses SearXNG for
 "searxng_url": ""
 ```
 
-AIRecon auto-manages the SearXNG Docker container lifecycle (start on use, stop on exit). To start manually:
+Ollama Shadow auto-manages the SearXNG Docker container lifecycle (start on use, stop on exit). To start manually:
 
 ```bash
 docker run -d --name searxng -p 8080:8080 searxng/searxng
@@ -437,20 +437,20 @@ How many iterations between full plan revision checkpoints. At each checkpoint, 
 
 ## 11. Environment Variable Overrides
 
-Any config key can be overridden without editing the file using environment variables. Format: `AIRECON_<KEY_UPPERCASE>`.
+Any config key can be overridden without editing the file using environment variables. Format: `OLLAMA_SHADOW_<KEY_UPPERCASE>`.
 
 ```bash
 # Override model
-AIRECON_OLLAMA_MODEL=qwen3:32b airecon start
+OLLAMA_SHADOW_OLLAMA_MODEL=qwen3:32b ollama-shadow start
 
 # Override temperature
-AIRECON_OLLAMA_TEMPERATURE=0.2 airecon start
+OLLAMA_SHADOW_OLLAMA_TEMPERATURE=0.2 ollama-shadow start
 
 # Disable destructive testing
-AIRECON_ALLOW_DESTRUCTIVE_TESTING=false airecon start
+OLLAMA_SHADOW_ALLOW_DESTRUCTIVE_TESTING=false ollama-shadow start
 
 # Use a different Ollama endpoint
-AIRECON_OLLAMA_URL=http://10.0.0.5:11434 airecon start
+OLLAMA_SHADOW_OLLAMA_URL=http://10.0.0.5:11434 ollama-shadow start
 ```
 
 **Type conversion rules:**

@@ -1,7 +1,7 @@
 from unittest.mock import patch
 import ollama as _ollama
 
-from airecon.proxy.ollama import _detect_model_capabilities_from_show, OllamaClient
+from ollama_shadow.proxy.ollama import _detect_model_capabilities_from_show, OllamaClient
 
 
 def test_prefers_show_metadata_for_thinking_and_tools() -> None:
@@ -14,7 +14,7 @@ def test_prefers_show_metadata_for_thinking_and_tools() -> None:
     assert native_tools is True
 
 
-def test_tools_without_thinking_are_not_enabled_for_airecon() -> None:
+def test_tools_without_thinking_are_not_enabled() -> None:
     show_data = {
         "capabilities": ["tools"],
         "template": "No reasoning tags",
@@ -60,7 +60,7 @@ def test_init_keeps_config_defaults_when_detection_fails() -> None:
     """When ollama show fails, OllamaClient keeps config defaults (not forced False)."""
     with patch("ollama.Client") as mock_client_cls, \
          patch("ollama.AsyncClient"), \
-         patch("airecon.proxy.ollama.get_config") as mock_cfg:
+         patch("ollama_shadow.proxy.ollama.get_config") as mock_cfg:
         mock_cfg.return_value.ollama_url = "http://127.0.0.1:11434"
         mock_cfg.return_value.ollama_model = "qwen3:32b"
         mock_cfg.return_value.ollama_supports_thinking = True
@@ -77,7 +77,7 @@ def test_explicit_false_config_skips_detection_entirely() -> None:
     """When both config flags are False, ollama show is never called."""
     with patch("ollama.Client") as mock_client_cls, \
          patch("ollama.AsyncClient"), \
-         patch("airecon.proxy.ollama.get_config") as mock_cfg:
+         patch("ollama_shadow.proxy.ollama.get_config") as mock_cfg:
         mock_cfg.return_value.ollama_url = "http://127.0.0.1:11434"
         mock_cfg.return_value.ollama_model = "qwen3:32b"
         mock_cfg.return_value.ollama_supports_thinking = False
@@ -94,7 +94,7 @@ def test_native_tools_forced_off_when_thinking_disabled() -> None:
     """native_tools cannot be True when thinking is False — invariant enforced in __init__."""
     with patch("ollama.Client") as mock_client_cls, \
          patch("ollama.AsyncClient"), \
-         patch("airecon.proxy.ollama.get_config") as mock_cfg:
+         patch("ollama_shadow.proxy.ollama.get_config") as mock_cfg:
         mock_cfg.return_value.ollama_url = "http://127.0.0.1:11434"
         mock_cfg.return_value.ollama_model = "qwen3:32b"
         mock_cfg.return_value.ollama_supports_thinking = False
@@ -114,7 +114,7 @@ def test_detection_success_overrides_optimistic_config() -> None:
     show_data = {"capabilities": [], "template": "No reasoning tags", "modelfile": "FROM x"}
     with patch("ollama.Client") as mock_client_cls, \
          patch("ollama.AsyncClient"), \
-         patch("airecon.proxy.ollama.get_config") as mock_cfg:
+         patch("ollama_shadow.proxy.ollama.get_config") as mock_cfg:
         mock_cfg.return_value.ollama_url = "http://127.0.0.1:11434"
         mock_cfg.return_value.ollama_model = "plain-model:latest"
         mock_cfg.return_value.ollama_supports_thinking = True

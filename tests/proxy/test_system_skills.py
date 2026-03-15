@@ -1,4 +1,4 @@
-from airecon.proxy.system import auto_load_skills_for_message
+from ollama_shadow.proxy.system import auto_load_skills_for_message
 
 
 def test_auto_load_reversing_skill_keywords():

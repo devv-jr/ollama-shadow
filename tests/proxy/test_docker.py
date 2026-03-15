@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from airecon.proxy.docker import DockerEngine
+from ollama_shadow.proxy.docker import DockerEngine
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ async def test_start_container_success(docker_engine, mocker):
     mocker.patch("asyncio.create_subprocess_exec", return_value=mock_proc)
 
     # Mocking get_workspace_root to prevent folder creation during test
-    mocker.patch("airecon.proxy.docker.get_workspace_root",
+    mocker.patch("ollama_shadow.proxy.docker.get_workspace_root",
                  return_value="/tmp/test_workspace")
 
     # Needs to bypass the `apt update` background task waiting around

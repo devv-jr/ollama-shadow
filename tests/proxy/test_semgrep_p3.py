@@ -1,4 +1,4 @@
-"""P3 Comprehensive Tests for airecon.proxy.semgrep module.
+"""P3 Comprehensive Tests for ollama_shadow.proxy.semgrep module.
 
 Tests cover:
 - Command building with various options (rules, languages, max findings)
@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import AsyncMock
 
 # Module under test
-from airecon.proxy import semgrep
+from ollama_shadow.proxy import semgrep
 
 
 class TestGetDefaultRules:

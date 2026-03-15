@@ -1,6 +1,6 @@
 # Contributors
 
-A massive thank you to everyone who has contributed to AIRecon. Your pull requests, bug reports, and feedback keep this project moving forward!
+A massive thank you to everyone who has contributed to Ollama Shadow. Your pull requests, bug reports, and feedback keep this project moving forward!
 
 ## Core Contributors
 

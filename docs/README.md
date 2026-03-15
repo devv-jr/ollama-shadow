@@ -1,6 +1,6 @@
-# AIRecon Documentation
+# Ollama Shadow Documentation
 
-Welcome to the AIRecon documentation.
+Welcome to the Ollama Shadow documentation.
 
 ## Guides
 
@@ -9,7 +9,7 @@ Welcome to the AIRecon documentation.
 - [Installation & Setup](installation.md) — Step-by-step installation guide with hardware requirements
 - [Configuration Reference](configuration.md) — All config options with examples, presets, and environment variable overrides
 
-## Extending AIRecon
+## Extending Ollama Shadow
 
 - [Adding Custom Skills](development/creating_skills.md) — Create Markdown knowledge bases to teach the agent new attack techniques or technology-specific procedures.
 
@@ -28,4 +28,4 @@ Welcome to the AIRecon documentation.
 
 ## Community
 
-Found a bug or want to contribute? [GitHub Issues](https://github.com/pikpikcu/airecon/issues)
+Found a bug or want to contribute? [GitHub Issues](https://github.com/pikpikcu/ollama-shadow/issues)

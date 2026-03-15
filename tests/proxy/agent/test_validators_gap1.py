@@ -5,7 +5,7 @@ Verifies that HTTP evidence requires actual impact proof, not just status codes.
 """
 
 import pytest
-from airecon.proxy.agent.validators import _ValidatorMixin
+from ollama_shadow.proxy.agent.validators import _ValidatorMixin
 
 
 class MockAgentLoop(_ValidatorMixin):

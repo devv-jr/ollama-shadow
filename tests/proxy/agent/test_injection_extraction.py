@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from airecon.proxy.agent.session import (
+from ollama_shadow.proxy.agent.session import (
     _extract_injection_points,
     _guess_injection_type,
     _merge_injection_points,
     _normalize_url,
 )
-from airecon.proxy.agent.formatters import _load_port_hints, _load_tech_hints
+from ollama_shadow.proxy.agent.formatters import _load_port_hints, _load_tech_hints
 
 
 # ---------------------------------------------------------------------------

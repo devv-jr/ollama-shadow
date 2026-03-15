@@ -8,7 +8,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from airecon.proxy.system import _is_ctf_target
+from ollama_shadow.proxy.system import _is_ctf_target
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import pytest
-from airecon.proxy.agent.validators import _ValidatorMixin
+from ollama_shadow.proxy.agent.validators import _ValidatorMixin
 
 
 class DummyTestAgent(_ValidatorMixin):

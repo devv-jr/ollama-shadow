@@ -1,4 +1,4 @@
-"""Tests for _FormatterMixin in airecon/proxy/agent/formatters.py.
+"""Tests for _FormatterMixin in ollama_shadow/proxy/agent/formatters.py.
 
 These tests use a minimal DummyFormatter that extends _FormatterMixin
 directly so we can test each method without spinning up a full AgentLoop.
@@ -6,7 +6,7 @@ directly so we can test each method without spinning up a full AgentLoop.
 
 from unittest.mock import MagicMock, AsyncMock
 from dataclasses import dataclass, field
-from airecon.proxy.agent.formatters import _FormatterMixin, _help_cache
+from ollama_shadow.proxy.agent.formatters import _FormatterMixin, _help_cache
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

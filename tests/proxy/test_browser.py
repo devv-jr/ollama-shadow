@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock
-from airecon.proxy.browser import BrowserInstance, _generate_totp
+from ollama_shadow.proxy.browser import BrowserInstance, _generate_totp
 
 
 def test_generate_totp():

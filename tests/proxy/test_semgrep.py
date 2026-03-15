@@ -1,9 +1,9 @@
-"""Tests for airecon/proxy/semgrep.py — pure logic and async run_code_analysis."""
+"""Tests for ollama_shadow/proxy/semgrep.py — pure logic and async run_code_analysis."""
 
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from airecon.proxy.semgrep import (
+from ollama_shadow.proxy.semgrep import (
     get_default_rules,
     build_semgrep_command,
     parse_semgrep_results,

@@ -15,17 +15,17 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 # Modules under test
-from airecon.proxy.agent.pipeline import (
+from ollama_shadow.proxy.agent.pipeline import (
     PipelinePhase,
     PipelineEngine,
     PhaseConfig,
     DEFAULT_PHASES,
 )
-from airecon.proxy.agent.loop import AgentLoop
-from airecon.proxy.agent.session import SessionData
-from airecon.proxy.agent.models import AgentState
-from airecon.proxy.ollama import OllamaClient
-from airecon.proxy.docker import DockerEngine
+from ollama_shadow.proxy.agent.loop import AgentLoop
+from ollama_shadow.proxy.agent.session import SessionData
+from ollama_shadow.proxy.agent.models import AgentState
+from ollama_shadow.proxy.ollama import OllamaClient
+from ollama_shadow.proxy.docker import DockerEngine
 
 
 class TestPipelinePhase:
@@ -41,7 +41,7 @@ class TestPipelinePhase:
 
     def test_phase_ordering(self):
         """Phases should be defined in correct order."""
-        from airecon.proxy.agent.pipeline import _PHASE_ORDER
+        from ollama_shadow.proxy.agent.pipeline import _PHASE_ORDER
         
         assert _PHASE_ORDER[0] == PipelinePhase.RECON
         assert _PHASE_ORDER[1] == PipelinePhase.ANALYSIS
@@ -297,7 +297,7 @@ class TestPipelineEngineTransitions:
     def test_pipeline_initial_phase(self):
         """Pipeline should have RECON as initial phase in DEFAULT_PHASES."""
         # Verify the static configuration has RECON first
-        from airecon.proxy.agent.pipeline import _PHASE_ORDER
+        from ollama_shadow.proxy.agent.pipeline import _PHASE_ORDER
         
         # Get initial phase
         initial = _PHASE_ORDER[0]
@@ -305,7 +305,7 @@ class TestPipelineEngineTransitions:
 
     def test_phase_order_preserved(self):
         """Phases should maintain defined order."""
-        from airecon.proxy.agent.pipeline import _PHASE_ORDER
+        from ollama_shadow.proxy.agent.pipeline import _PHASE_ORDER
         
         # Verify the static order
         for i, phase in enumerate(_PHASE_ORDER):

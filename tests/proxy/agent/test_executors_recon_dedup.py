@@ -1,4 +1,4 @@
-from airecon.proxy.agent.executors import _ExecutorMixin, _RECON_SUBDOMAIN_BINS
+from ollama_shadow.proxy.agent.executors import _ExecutorMixin, _RECON_SUBDOMAIN_BINS
 
 
 class _DummyPhase:

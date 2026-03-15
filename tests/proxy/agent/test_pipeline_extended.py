@@ -1,7 +1,7 @@
 """Extended pipeline tests covering all phase transitions and check_tool_phase_fit."""
 
 from unittest.mock import MagicMock
-from airecon.proxy.agent.pipeline import PipelineEngine, PipelinePhase
+from ollama_shadow.proxy.agent.pipeline import PipelineEngine, PipelinePhase
 
 
 def _make_session(**kwargs):

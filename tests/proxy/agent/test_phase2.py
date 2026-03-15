@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import pytest
-from airecon.proxy.system import auto_load_skills_for_message, _PHASE_SKILL_DIRECTORIES
-from airecon.proxy.agent.models import AgentState
-from airecon.proxy.agent.pipeline import _PHASE_TOOL_BUDGETS, PipelineEngine
-from airecon.proxy.agent.session import SessionData
+from ollama_shadow.proxy.system import auto_load_skills_for_message, _PHASE_SKILL_DIRECTORIES
+from ollama_shadow.proxy.agent.models import AgentState
+from ollama_shadow.proxy.agent.pipeline import _PHASE_TOOL_BUDGETS, PipelineEngine
+from ollama_shadow.proxy.agent.session import SessionData
 
 
 # ── Skill Orchestration Policy ─────────────────────────────────────────────
@@ -19,7 +19,7 @@ def test_phase_skill_directories_defined():
 
 def test_skill_phase_boost_exploit_score_logic():
     """In EXPLOIT phase, payloads/ skills get +2 boost over recon/ skills."""
-    import airecon.proxy.system as sys_module
+    import ollama_shadow.proxy.system as sys_module
 
     fake_keywords = {
         "sql": "payloads/sqli.md",
@@ -58,7 +58,7 @@ def test_skill_phase_no_boost_zero_hits(mocker):
     fake_keywords = {
         "xss": "payloads/xss.md",
     }
-    mocker.patch("airecon.proxy.system._SKILL_KEYWORDS", fake_keywords)
+    mocker.patch("ollama_shadow.proxy.system._SKILL_KEYWORDS", fake_keywords)
 
     # Message has NO keywords matching payloads/sqli.md (which is in EXPLOIT preferred)
     # sqli.md should NOT appear despite being in preferred dir
@@ -75,9 +75,9 @@ def test_skill_phase_report_no_boost(mocker):
         "vulnerability": "vulnerabilities/sql_injection.md",
         "sql": "payloads/sqli.md",
     }
-    mocker.patch("airecon.proxy.system._SKILL_KEYWORDS", fake_keywords)
+    mocker.patch("ollama_shadow.proxy.system._SKILL_KEYWORDS", fake_keywords)
 
-    import airecon.proxy.system as sys_module
+    import ollama_shadow.proxy.system as sys_module
     original_dirs = sys_module._PHASE_SKILL_DIRECTORIES
 
     # Verify REPORT has empty preferred set
@@ -93,9 +93,9 @@ def test_skill_boost_additive_not_multiplicative(mocker):
         "sql": "payloads/sqli.md",
         "xss": "vulnerabilities/xss.md",
     }
-    mocker.patch("airecon.proxy.system._SKILL_KEYWORDS", fake_keywords)
+    mocker.patch("ollama_shadow.proxy.system._SKILL_KEYWORDS", fake_keywords)
 
-    import airecon.proxy.system as sys_module
+    import ollama_shadow.proxy.system as sys_module
 
     # Simulate score computation manually
     msg = "sql injection xss"

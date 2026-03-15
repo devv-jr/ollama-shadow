@@ -14,7 +14,7 @@
 
 ## 1. What are Skills?
 
-Skills are plain Markdown (`.md`) files stored in `airecon/proxy/skills/`. They contain specialized knowledge about attack techniques, tool usage, and testing procedures for specific technologies or vulnerability classes.
+Skills are plain Markdown (`.md`) files stored in `ollama-shadow/proxy/skills/`. They contain specialized knowledge about attack techniques, tool usage, and testing procedures for specific technologies or vulnerability classes.
 
 **Skills complement the system prompt.** The system prompt gives the agent general security methodology. Skills provide deep, specific knowledge on-demand — without bloating the main prompt with information that is irrelevant to most targets.
 
@@ -30,10 +30,10 @@ Skills are plain Markdown (`.md`) files stored in `airecon/proxy/skills/`. They 
 
 ### 2.1 Discovery at startup
 
-When AIRecon starts, `system.py` scans the entire `skills/` tree and builds a list of all `.md` files with their absolute paths:
+When Ollama Shadow starts, `system.py` scans the entire `skills/` tree and builds a list of all `.md` files with their absolute paths:
 
 ```python
-# airecon/proxy/system.py
+# ollama-shadow/proxy/system.py
 def _load_local_skills() -> str:
     skills_dir = Path(__file__).resolve().parent / "skills"
     for path in sorted(skills_dir.rglob("*.md")):
@@ -46,9 +46,9 @@ This list is injected into the system prompt as an `<available_skills>` block:
 <available_skills>
 You have access to the following skill documents. If you need specific guidance
 on a topic, use the `read_file` tool with the EXACT absolute path listed below:
-- /home/user/.../airecon/proxy/skills/vulnerabilities/xss.md
-- /home/user/.../airecon/proxy/skills/vulnerabilities/sqli.md
-- /home/user/.../airecon/proxy/skills/protocols/graphql.md
+- /home/user/.../ollama-shadow/proxy/skills/vulnerabilities/xss.md
+- /home/user/.../ollama-shadow/proxy/skills/vulnerabilities/sqli.md
+- /home/user/.../ollama-shadow/proxy/skills/protocols/graphql.md
 ...
 </available_skills>
 ```
@@ -156,7 +156,7 @@ Loading all skills at startup would consume 50,000+ tokens of context window —
 
 | File | Topic |
 |------|-------|
-| `advanced_fuzzing.md` | AIRecon fuzzing engine usage: quick_fuzz, advanced_fuzz, deep_fuzz, schemathesis |
+| `advanced_fuzzing.md` | Ollama Shadow fuzzing engine usage: quick_fuzz, advanced_fuzz, deep_fuzz, schemathesis |
 | `browser_automation.md` | Playwright browser automation: auth flows, JS execution, network capture |
 | `caido.md` | Caido proxy integration: HTTPQL filters, §FUZZ§ markers, automate patterns |
 | `dalfox.md` | Dalfox XSS scanner: flags, blind XSS, DOM scan, custom payloads |
@@ -188,18 +188,18 @@ Loading all skills at startup would consume 50,000+ tokens of context window —
 
 ```bash
 # Example: adding a WebSocket testing skill
-touch airecon/proxy/skills/protocols/websocket.md
+touch ollama-shadow/proxy/skills/protocols/websocket.md
 ```
 
 ### Step 3: Write the skill (see [Full Template](#6-full-skill-template) below)
 
-### Step 4: Restart AIRecon
+### Step 4: Restart Ollama Shadow
 
 Skills are scanned at startup. Restart for the new file to appear in the `<available_skills>` list.
 
 ```bash
 # Stop current session and restart
-airecon start
+ollama-shadow start
 ```
 
 ### Step 5: Verify
@@ -354,9 +354,9 @@ After creating a skill, verify it works as expected:
 **1. Check it appears in the skill list:**
 
 ```bash
-# Start AIRecon and look at the system prompt (dev mode)
+# Start Ollama Shadow and look at the system prompt (dev mode)
 python3 -c "
-from airecon.proxy.system import get_system_prompt
+from ollama-shadow.proxy.system import get_system_prompt
 p = get_system_prompt()
 # Find the available_skills block
 start = p.find('<available_skills>')
@@ -368,10 +368,10 @@ print(p[start:end])
 **2. Test the read_file path directly:**
 
 ```bash
-# Find the exact absolute path AIRecon will use
+# Find the exact absolute path Ollama Shadow will use
 python3 -c "
 from pathlib import Path
-import airecon.proxy.system as sp
+import ollama-shadow.proxy.system as sp
 skills_dir = Path(sp.__file__).resolve().parent / 'skills'
 for p in sorted(skills_dir.rglob('*.md')):
     if 'your_skill_name' in str(p):

@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from airecon.tui.app import AIReconApp
-from airecon.tui.widgets.input import CommandInput
+from ollama_shadow.tui.app import OllamaShadowApp
+from ollama_shadow.tui.widgets.input import CommandInput
 
 
 @pytest.fixture(autouse=True)
@@ -9,14 +9,14 @@ def isolated_workspace(tmp_path, monkeypatch):
     """Keep TUI tests isolated from large real workspace trees."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setattr("airecon.tui.app.get_workspace_root", lambda: workspace)
+    monkeypatch.setattr("ollama_shadow.tui.app.get_workspace_root", lambda: workspace)
 
 
 @pytest.mark.asyncio
 async def test_app_initialization():
-    async with AIReconApp().run_test() as pilot:
-        assert pilot.app.title == "AIRecon"
-        assert pilot.app.sub_title == "AI Security Reconnaissance"
+    async with OllamaShadowApp().run_test() as pilot:
+        assert pilot.app.title == "Ollama Shadow"
+        assert pilot.app.sub_title == "Cloud-Powered Autonomous Pentesting Agent"
 
         # Check initial widgets
         assert pilot.app.query_one("#command-input") is not None
@@ -26,8 +26,8 @@ async def test_app_initialization():
 
 @pytest.mark.asyncio
 async def test_app_send_message_triggers_worker():
-    with patch.object(AIReconApp, 'run_worker') as mock_run_worker:
-        async with AIReconApp().run_test() as pilot:
+    with patch.object(OllamaShadowApp, 'run_worker') as mock_run_worker:
+        async with OllamaShadowApp().run_test() as pilot:
             command_input = pilot.app.query_one("#command-input", CommandInput)
 
             # Fill inputs
@@ -55,7 +55,7 @@ async def test_app_status_polling_connection():
         }
         mock_get.return_value = mock_response
 
-        async with AIReconApp().run_test() as pilot:
+        async with OllamaShadowApp().run_test() as pilot:
             # Manually trigger a single poll check rather than waiting for the background task
             await pilot.app._check_services(verbose=False)
             await pilot.pause()

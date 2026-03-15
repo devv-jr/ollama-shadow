@@ -1,5 +1,5 @@
-from airecon.proxy.agent.session import generate_session_id, _calculate_similarity, _is_duplicate_vulnerability, update_from_parsed_output
-from airecon.proxy.agent.output_parser import ParsedOutput
+from ollama_shadow.proxy.agent.session import generate_session_id, _calculate_similarity, _is_duplicate_vulnerability, update_from_parsed_output
+from ollama_shadow.proxy.agent.output_parser import ParsedOutput
 
 
 def test_generate_session_id():

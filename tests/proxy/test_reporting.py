@@ -1,5 +1,5 @@
 import os
-from airecon.proxy.reporting import create_vulnerability_report, calculate_cvss_and_severity
+from ollama_shadow.proxy.reporting import create_vulnerability_report, calculate_cvss_and_severity
 
 
 def test_calculate_cvss():

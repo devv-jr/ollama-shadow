@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from airecon.proxy.agent.loop import AgentLoop
+from ollama_shadow.proxy.agent.loop import AgentLoop
 
 
 @pytest.fixture
@@ -12,7 +12,7 @@ def agent_loop(mocker):
     engine_mock.discover_tools = AsyncMock(return_value=[])
     engine_mock.tools_to_ollama_format = MagicMock(return_value=[])
 
-    with patch('airecon.proxy.agent.loop.get_config') as mock_config:
+    with patch('ollama_shadow.proxy.agent.loop.get_config') as mock_config:
         cfg = MagicMock()
         cfg.agent_max_tool_iterations = 5
         mock_config.return_value = cfg
@@ -22,13 +22,13 @@ def agent_loop(mocker):
 
 @pytest.mark.asyncio
 async def test_agent_initialization(agent_loop, mocker):
-    mocker.patch('airecon.proxy.system.get_system_prompt',
-                 return_value="You are AIRecon.")
+    mocker.patch('ollama_shadow.proxy.system.get_system_prompt',
+                 return_value="You are Ollama Shadow.")
 
     await agent_loop.initialize(target="test.com", user_message="scan test.com")
 
     assert len(agent_loop.state.conversation) > 0
-    assert "You are AIRecon." in agent_loop.state.conversation[0]["content"]
+    assert "You are Ollama Shadow." in agent_loop.state.conversation[0]["content"]
     assert agent_loop._session is not None
     assert agent_loop.pipeline is not None
 

@@ -1,10 +1,10 @@
-"""Tests for airecon.proxy.agent.output_parser module.
+"""Tests for ollama_shadow.proxy.agent.output_parser module.
 
 P1 Priority: Tests for edge cases in nuclei, gobuster, subfinder, whatweb parsing.
 """
 
 import json
-from airecon.proxy.agent.output_parser import (
+from ollama_shadow.proxy.agent.output_parser import (
     parse_tool_output,
     detect_tool,
     _parse_nmap,
@@ -414,7 +414,7 @@ class TestParseToolOutputIntegration:
 
     def test_parse_respects_max_items(self):
         """Test that MAX_ITEMS limit is respected."""
-        from airecon.proxy.agent.output_parser import MAX_ITEMS
+        from ollama_shadow.proxy.agent.output_parser import MAX_ITEMS
 
         # Create output with more items than MAX_ITEMS
         subdomains = "\n".join([f"sub{i}.example.com" for i in range(MAX_ITEMS + 10)])

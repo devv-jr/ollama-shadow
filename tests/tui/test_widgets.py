@@ -2,13 +2,13 @@ import pytest
 import tempfile
 from pathlib import Path
 from textual.app import App, ComposeResult
-from airecon.tui.widgets.chat import ChatPanel
-from airecon.tui.widgets.workspace import WorkspacePanel
-from airecon.tui.widgets.status import StatusBar
+from ollama_shadow.tui.widgets.chat import ChatPanel
+from ollama_shadow.tui.widgets.workspace import WorkspacePanel
+from ollama_shadow.tui.widgets.status import StatusBar
 
 # A dummy Textual app to host isolated widgets
 
-_WORKSPACE_DIR = Path(tempfile.mkdtemp(prefix="airecon_test_"))
+_WORKSPACE_DIR = Path(tempfile.mkdtemp(prefix="ollama_shadow_test_"))
 
 
 class WidgetTestApp(App):

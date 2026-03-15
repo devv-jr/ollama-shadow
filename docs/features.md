@@ -1,4 +1,4 @@
-# AIRecon Features
+# Ollama Shadow Features
 
 > For the complete tool-by-tool reference including schemas, flags, and usage examples, see [Tools Reference](tools.md).
 
@@ -31,7 +31,7 @@
 
 ## Deep Thinking Model Support
 
-AIRecon supports reasoning models that generate internal thoughts (`<think>`) before producing a final answer. This is critical for complex tasks such as:
+Ollama Shadow supports reasoning models that generate internal thoughts (`<think>`) before producing a final answer. This is critical for complex tasks such as:
 
 - Planning multi-stage attack chains
 - Analyzing vulnerability proof-of-concepts
@@ -47,10 +47,10 @@ The agent captures the `<think>` stream separately. The TUI displays the model's
 
 ## Docker Sandbox Execution
 
-All shell commands run inside an isolated **Kali Linux Docker container** (`airecon-sandbox`). The `execute` tool is the single entry point for shell access inside the sandbox.
+All shell commands run inside an isolated **Kali Linux Docker container** (`ollama-shadow-sandbox`). The `execute` tool is the single entry point for shell access inside the sandbox.
 
 ```
-Agent Loop  →  execute tool  →  docker exec airecon-sandbox bash -c "<command>"
+Agent Loop  →  execute tool  →  docker exec ollama-shadow-sandbox bash -c "<command>"
 ```
 
 **Preinstalled tools include:**
@@ -78,7 +78,7 @@ The agent runs as user `pentester` with passwordless `sudo` and internet access,
 
 ## Pipeline Phases
 
-AIRecon operates through a structured 4-phase state machine. Phase transitions are triggered automatically based on real findings from tool output — not iteration counts.
+Ollama Shadow operates through a structured 4-phase state machine. Phase transitions are triggered automatically based on real findings from tool output — not iteration counts.
 
 ```
 RECON (max 500 iter)
@@ -159,7 +159,7 @@ Use cases: JavaScript-heavy apps, OAuth flows, XSS verification, DOM inspection,
 
 ## Browser Authentication
 
-AIRecon supports full authenticated testing via the `browser_action` tool's authentication sub-actions.
+Ollama Shadow supports full authenticated testing via the `browser_action` tool's authentication sub-actions.
 
 ### Supported Methods
 
@@ -235,13 +235,13 @@ intitle:"index of" intext:password
 docker run -d --name searxng -p 8080:8080 searxng/searxng
 ```
 
-AIRecon will start/stop the SearXNG container automatically. Falls back to DuckDuckGo if the container is unavailable.
+Ollama Shadow will start/stop the SearXNG container automatically. Falls back to DuckDuckGo if the container is unavailable.
 
 ---
 
 ## Caido Integration
 
-AIRecon connects natively to [Caido](https://caido.io) at `127.0.0.1:48080/graphql` using auto-managed session tokens.
+Ollama Shadow connects natively to [Caido](https://caido.io) at `127.0.0.1:48080/graphql` using auto-managed session tokens.
 
 ### Available Tools
 
@@ -283,7 +283,7 @@ Content-Type: application/json
 
 ## Fuzzing Engine
 
-AIRecon includes a built-in fuzzing engine separate from external tools like ffuf or wfuzz.
+Ollama Shadow includes a built-in fuzzing engine separate from external tools like ffuf or wfuzz.
 
 ### Architecture
 
@@ -327,7 +327,7 @@ ExploitChainEngine
 
 ## API Schema Fuzzing (Schemathesis)
 
-When a target exposes an OpenAPI or Swagger specification, AIRecon uses Schemathesis to perform property-based API fuzzing.
+When a target exposes an OpenAPI or Swagger specification, Ollama Shadow uses Schemathesis to perform property-based API fuzzing.
 
 ### Auto-Discovery
 
@@ -370,7 +370,7 @@ schemathesis_fuzz url=https://example.com/openapi.json headers={"X-API-Key": "se
 
 ## Technology Fingerprinting
 
-AIRecon parses technology fingerprint data from multiple tool outputs and stores them in structured session state.
+Ollama Shadow parses technology fingerprint data from multiple tool outputs and stores them in structured session state.
 
 ### Parsed Sources
 
@@ -472,7 +472,7 @@ Used for fully automated, structured end-to-end assessments.
 
 ## Session Persistence & Resume
 
-All session data is stored at `~/.airecon/sessions/<session_id>.json`:
+All session data is stored at `~/.ollama-shadow/sessions/<session_id>.json`:
 
 ```json
 {
@@ -502,7 +502,7 @@ All session data is stored at `~/.airecon/sessions/<session_id>.json`:
 ### Resume
 
 ```bash
-airecon start --session <session_id>
+ollama-shadow start --session <session_id>
 ```
 
 The agent re-reads all prior findings and picks up exactly where it left off — skipping work already done.
@@ -515,7 +515,7 @@ Vulnerabilities are deduplicated using **Jaccard similarity** on title + endpoin
 
 ## Anti Context-Loss
 
-On long sessions (500+ iterations), LLMs tend to "forget" findings from early in the conversation. AIRecon mitigates this with automatic context re-injection.
+On long sessions (500+ iterations), LLMs tend to "forget" findings from early in the conversation. Ollama Shadow mitigates this with automatic context re-injection.
 
 **Every 5 iterations**, `session_to_context()` generates a full summary of all current findings and injects it as a system message:
 
@@ -538,10 +538,10 @@ This ensures the model always "knows" the full state of the engagement, regardle
 
 ## Skills System
 
-Skills are Markdown files in `airecon/proxy/skills/` that give the agent deep, specialized knowledge on demand — without permanently bloating the system prompt.
+Skills are Markdown files in `ollama-shadow/proxy/skills/` that give the agent deep, specialized knowledge on demand — without permanently bloating the system prompt.
 
 **How it works:**
-1. At startup, AIRecon scans `skills/` and injects a list of all file paths into the system prompt as `<available_skills>`
+1. At startup, Ollama Shadow scans `skills/` and injects a list of all file paths into the system prompt as `<available_skills>`
 2. When the agent detects a relevant technology or vuln class, it calls `read_file` with the skill path
 3. The skill content is loaded into context for that session
 
@@ -671,7 +671,7 @@ curl "https://example.com/api/fetch?url=http://abc123.oast.fun"
 
 ## Custom Scripting Mandate
 
-AIRecon's agent is explicitly required to write custom Python scripts for complex workflows rather than relying solely on pre-built tools. Scripts are saved to `workspace/<target>/tools/` and can be re-run or modified by the user.
+Ollama Shadow's agent is explicitly required to write custom Python scripts for complex workflows rather than relying solely on pre-built tools. Scripts are saved to `workspace/<target>/tools/` and can be re-run or modified by the user.
 
 **Examples of agent-written scripts:**
 
@@ -692,11 +692,11 @@ All scripts follow the pattern: `TARGET = sys.argv[1]`, write results to `output
 
 ## Anti-Hallucination Controls
 
-> **Important caveat:** These controls *reduce* hallucination risk — they do **not** eliminate it. AIRecon uses self-hosted Ollama models, which are inherently more prone to fabrication than large cloud-hosted models. Even with all controls enabled, hallucinations **will still occur**, especially with models smaller than 30B parameters. **Always verify findings manually before acting on them.**
+> **Important caveat:** These controls *reduce* hallucination risk — they do **not** eliminate it. Ollama Shadow uses self-hosted Ollama models, which are inherently more prone to fabrication than large cloud-hosted models. Even with all controls enabled, hallucinations **will still occur**, especially with models smaller than 30B parameters. **Always verify findings manually before acting on them.**
 >
 > **Minimum recommended model size:** 30B+ parameters (e.g., `qwen3:32b`). Models below 30B frequently fail to follow scope rules, invent tool output, or produce malformed tool calls.
 
-AIRecon implements multiple layers to reduce hallucination frequency:
+Ollama Shadow implements multiple layers to reduce hallucination frequency:
 
 | Control | How it works | Limitation |
 |---------|-------------|-----------|

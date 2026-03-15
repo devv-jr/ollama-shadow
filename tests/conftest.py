@@ -1,6 +1,6 @@
 import pytest
-from airecon.proxy.agent.session import SessionData
-from airecon.proxy.agent.models import AgentState
+from ollama_shadow.proxy.agent.session import SessionData
+from ollama_shadow.proxy.agent.models import AgentState
 from unittest import mock
 import asyncio
 import concurrent.futures

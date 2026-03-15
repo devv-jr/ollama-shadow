@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock
-from airecon.proxy.fuzzer import Fuzzer, ExpertHeuristics, MutationEngine
+from ollama_shadow.proxy.fuzzer import Fuzzer, ExpertHeuristics, MutationEngine
 
 
 @pytest.fixture

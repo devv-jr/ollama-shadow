@@ -3,8 +3,8 @@ tool call parsing, and mocked end-to-end streaming."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from airecon.proxy.agent.loop import AgentLoop
-from airecon.proxy.agent.pipeline import PipelinePhase
+from ollama_shadow.proxy.agent.loop import AgentLoop
+from ollama_shadow.proxy.agent.pipeline import PipelinePhase
 
 
 # ── Fixture ───────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ def loop(mocker):
     engine_mock.discover_tools = AsyncMock(return_value=[])
     engine_mock.tools_to_ollama_format = MagicMock(return_value=[])
 
-    with patch("airecon.proxy.agent.loop.get_config") as mock_cfg:
+    with patch("ollama_shadow.proxy.agent.loop.get_config") as mock_cfg:
         cfg = MagicMock()
         cfg.agent_max_tool_iterations = 10
         cfg.ollama_num_ctx_small = 16384
@@ -130,7 +130,7 @@ class TestDuplicateCommandDetection:
 class TestAgentLoopInitialisation:
     @pytest.mark.asyncio
     async def test_initialize_creates_session(self, loop, mocker):
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         await loop.initialize(target="scanme.com", user_message="start recon")
 
         # initialize() creates a fresh session with empty target — the target is
@@ -140,16 +140,16 @@ class TestAgentLoopInitialisation:
 
     @pytest.mark.asyncio
     async def test_initialize_sets_pipeline(self, loop, mocker):
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         await loop.initialize(target="test.com", user_message="go")
 
         assert loop.pipeline is not None
-        from airecon.proxy.agent.pipeline import PipelinePhase
+        from ollama_shadow.proxy.agent.pipeline import PipelinePhase
         assert loop.pipeline.get_current_phase() == PipelinePhase.RECON
 
     @pytest.mark.asyncio
     async def test_initialize_adds_system_prompt_to_conversation(self, loop, mocker):
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="CUSTOM SYS PROMPT")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="CUSTOM SYS PROMPT")
         await loop.initialize(target="test.com", user_message="run scan")
 
         messages = loop.state.conversation
@@ -157,7 +157,7 @@ class TestAgentLoopInitialisation:
 
     @pytest.mark.asyncio
     async def test_initialize_registers_tools_in_conversation(self, loop, mocker):
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         await loop.initialize(target="test.com", user_message="scan all ports")
 
         # After initialize(), the conversation should have system messages listing
@@ -195,7 +195,7 @@ class TestLoopStreamingWithMockedOllama:
 
     @pytest.mark.asyncio
     async def test_plain_text_response_yields_text_events(self, loop, mocker):
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         await loop.initialize(target="test.com", user_message="hello")
 
         # Build a mock streaming response: 3 chunks + done chunk
@@ -224,7 +224,7 @@ class TestLoopStreamingWithMockedOllama:
 
     @pytest.mark.asyncio
     async def test_error_event_on_connection_refused(self, loop, mocker):
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         await loop.initialize(target="test.com", user_message="go")
 
         async def _failing_stream(*args, **kwargs):
@@ -249,7 +249,7 @@ class TestLoopStreamingWithMockedOllama:
         """When active recon target exists, a text-only hallucinated response
         must trigger retry, not immediate done.
         """
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         mocker.patch.object(loop, "_scan_workspace_state", return_value="")
         await loop.initialize(target="test.com", user_message="start recon test.com")
         loop.state.active_target = "test.com"
@@ -304,7 +304,7 @@ class TestLoopStreamingWithMockedOllama:
     @pytest.mark.asyncio
     async def test_watchdog_forces_tool_call_after_text_only_retries(self, loop, mocker):
         """After repeated text-only iterations, watchdog should inject a tool call."""
-        mocker.patch("airecon.proxy.system.get_system_prompt", return_value="SYS")
+        mocker.patch("ollama_shadow.proxy.system.get_system_prompt", return_value="SYS")
         mocker.patch.object(loop, "_scan_workspace_state", return_value="")
         await loop.initialize(target="test.com", user_message="start recon test.com")
         loop.state.active_target = "test.com"
@@ -378,7 +378,7 @@ class TestAdvancedStateOrchestration:
         assert "PHASE GATE" in note
 
     def test_exploration_directive_triggers_on_stagnation(self, loop, mocker):
-        mocker.patch("airecon.proxy.agent.loop.get_config", return_value=mocker.MagicMock(
+        mocker.patch("ollama_shadow.proxy.agent.loop.get_config", return_value=mocker.MagicMock(
             agent_exploration_mode=True,
             agent_exploration_intensity=0.9,
             agent_stagnation_threshold=1,

@@ -1,15 +1,15 @@
 [tool.poetry]
-name = "airecon"
-version = "0.1.5-beta"
-description = "AI-powered security reconnaissance: Ollama + Kali Linux Docker sandbox + Textual TUI"
-authors = ["pikpikcu"]
+name = "ollama-shadow"
+version = "0.1.0"
+description = "Cloud-Powered Autonomous Penetration Testing Agent: Ollama Cloud + Kali Linux Docker sandbox + Textual TUI"
+authors = ["devv-jr"]
 readme = "README.md"
-packages = [{include = "airecon"}]
+packages = [{include = "ollama_shadow"}]
 include = [
-    "airecon/proxy/skills/**/*.md", 
-    "airecon/containers/**/*",
-    "airecon/proxy/data/**/*",
-    "airecon/proxy/prompts/**/*"
+    "ollama_shadow/proxy/skills/**/*.md",
+    "ollama_shadow/containers/**/*",
+    "ollama_shadow/proxy/data/**/*",
+    "ollama_shadow/proxy/prompts/**/*"
 ]
 
 [tool.poetry.dependencies]
@@ -38,7 +38,7 @@ pytest-mock = "^3.15.1"
 pytest-timeout = "^2.4.0"
 
 [tool.poetry.scripts]
-airecon = "airecon.__main__:main"
+ollama-shadow = "ollama_shadow.__main__:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -47,18 +47,18 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
-source = ["airecon"]
+source = ["ollama_shadow"]
 # Exclude integration-heavy files that require Docker/Ollama/Playwright at runtime
 omit = [
-    "airecon/__main__.py",
-    "airecon/logger.py",
-    "airecon/proxy/server.py",
-    "airecon/proxy/searxng.py",
-    "airecon/proxy/agent_graph.py",
-    "airecon/proxy/subagent.py",
-    "airecon/proxy/browser.py",
-    "airecon/proxy/ollama.py",
-    "airecon/tui/*",
+    "ollama_shadow/__main__.py",
+    "ollama_shadow/logger.py",
+    "ollama_shadow/proxy/server.py",
+    "ollama_shadow/proxy/searxng.py",
+    "ollama_shadow/proxy/agent_graph.py",
+    "ollama_shadow/proxy/subagent.py",
+    "ollama_shadow/proxy/browser.py",
+    "ollama_shadow/proxy/ollama.py",
+    "ollama_shadow/tui/*",
 ]
 
 [tool.coverage.report]

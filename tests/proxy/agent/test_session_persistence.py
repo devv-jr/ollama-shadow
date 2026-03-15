@@ -3,7 +3,7 @@
 import json
 import pytest
 from unittest.mock import patch
-from airecon.proxy.agent.session import (
+from ollama_shadow.proxy.agent.session import (
     SessionData,
     save_session,
     load_session,
@@ -16,7 +16,7 @@ def tmp_sessions_dir(tmp_path):
     """Patch SESSIONS_DIR to a temporary directory for each test."""
     sessions_dir = tmp_path / "sessions"
     sessions_dir.mkdir()
-    with patch("airecon.proxy.agent.session.SESSIONS_DIR", sessions_dir):
+    with patch("ollama_shadow.proxy.agent.session.SESSIONS_DIR", sessions_dir):
         yield sessions_dir
 
 
@@ -75,7 +75,7 @@ class TestSaveAndLoadSession:
 
     def test_save_creates_directory_if_missing(self, tmp_path):
         nested = tmp_path / "deep" / "nested" / "sessions"
-        with patch("airecon.proxy.agent.session.SESSIONS_DIR", nested):
+        with patch("ollama_shadow.proxy.agent.session.SESSIONS_DIR", nested):
             session = SessionData(target="test.com")
             save_session(session)
             assert nested.exists()
@@ -129,7 +129,7 @@ class TestListSessions:
 
     def test_list_missing_dir_returns_empty(self, tmp_path):
         nonexistent = tmp_path / "no_sessions"
-        with patch("airecon.proxy.agent.session.SESSIONS_DIR", nonexistent):
+        with patch("ollama_shadow.proxy.agent.session.SESSIONS_DIR", nonexistent):
             assert list_sessions() == []
 
     def test_list_skips_corrupted_files(self, tmp_sessions_dir):

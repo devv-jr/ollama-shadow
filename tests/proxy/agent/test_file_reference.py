@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from airecon.proxy.agent.file_reference import (
+from ollama_shadow.proxy.agent.file_reference import (
     FileRef,
     ResolvedRef,
     build_injection_message,
@@ -296,7 +296,7 @@ class TestResolveBinaryFile:
         # is relative_to(self.workspace) → "uploads/ctf.elf" → no ValueError.
         # Before fix: "/workspace" / Path("uploads/ctf.elf") → TypeError.
         # After fix: Path("/workspace") / Path("uploads/ctf.elf") → works.
-        with patch("airecon.proxy.config.get_workspace_root",
+        with patch("ollama_shadow.proxy.config.get_workspace_root",
                    return_value=self.workspace):
             ref = FileRef(raw=f"@{src}", path=src)
             resolved = resolve_ref(ref, self.workspace)

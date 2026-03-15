@@ -33,7 +33,7 @@ jobs:
             echo "Create a Classic PAT with 'project' scope at:"
             echo "  https://github.com/settings/tokens"
             echo "Then add it as a repo secret at:"
-            echo "  https://github.com/pikpikcu/airecon/settings/secrets/actions"
+            echo "  https://github.com/pikpikcu/ollama-shadow/settings/secrets/actions"
             exit 1
           fi
 

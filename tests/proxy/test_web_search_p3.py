@@ -1,4 +1,4 @@
-"""P3 Comprehensive Tests for airecon.proxy.web_search module.
+"""P3 Comprehensive Tests for ollama_shadow.proxy.web_search module.
 
 Tests cover:
 - SearXNG search integration
@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch, mock_open
 import pytest
 
 # Module under test
-from airecon.proxy import web_search
+from ollama_shadow.proxy import web_search
 
 
 class TestSearXngSearch:
@@ -28,7 +28,7 @@ class TestSearXngSearch:
         """Should limit results to max_results parameter."""
         # This test validates the function signature and behavior through other means
         # rather than full async mocking which is complex with aiohttp
-        from airecon.proxy.web_search import _searxng_search
+        from ollama_shadow.proxy.web_search import _searxng_search
         
         # Verify the function exists and is callable
         assert callable(_searxng_search)
@@ -43,7 +43,7 @@ class TestDdgSearch:
     @pytest.mark.asyncio
     async def test_ddg_search_function_exists(self):
         """Should have _ddg_search function."""
-        from airecon.proxy.web_search import _ddg_search
+        from ollama_shadow.proxy.web_search import _ddg_search
         assert callable(_ddg_search)
 
 
@@ -54,7 +54,7 @@ class TestWebSearch:
     async def test_web_search_accepts_parameters(self):
         """web_search function should accept expected parameters."""
         import inspect
-        from airecon.proxy.web_search import web_search as ws_func
+        from ollama_shadow.proxy.web_search import web_search as ws_func
         
         sig = inspect.signature(ws_func)
         assert "query" in sig.parameters
@@ -69,7 +69,7 @@ class TestWebSearch:
             "result": "Cached result",
         }
         
-        with patch("airecon.proxy.web_search._get_cached_results", return_value=cached_result):
+        with patch("ollama_shadow.proxy.web_search._get_cached_results", return_value=cached_result):
             result = await web_search.web_search("test", use_cache=True)
         
         assert result["success"] is True

@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock
-from airecon.proxy.caido_client import CaidoClient
+from ollama_shadow.proxy.caido_client import CaidoClient
 
 
 @pytest.fixture(autouse=True)

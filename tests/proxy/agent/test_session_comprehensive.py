@@ -1,4 +1,4 @@
-"""Tests for airecon.proxy.agent.session module.
+"""Tests for ollama_shadow.proxy.agent.session module.
 
 P2 Priority: Tests for SessionData serialization, save/load, session_to_context accuracy.
 """
@@ -6,14 +6,14 @@ P2 Priority: Tests for SessionData serialization, save/load, session_to_context 
 import json
 from datetime import datetime
 
-from airecon.proxy.agent.session import (
+from ollama_shadow.proxy.agent.session import (
     SessionData,
     generate_session_id,
     _calculate_similarity,
     _is_duplicate_vulnerability,
     update_from_parsed_output,
 )
-from airecon.proxy.agent.output_parser import ParsedOutput
+from ollama_shadow.proxy.agent.output_parser import ParsedOutput
 
 
 class TestGenerateSessionId:

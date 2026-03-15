@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from airecon.proxy.agent.validators import (
+from ollama_shadow.proxy.agent.validators import (
     validate_target_path,
     validate_command_paths,
     has_dangerous_patterns,

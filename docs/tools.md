@@ -1,6 +1,6 @@
-# AIRecon Tools Reference
+# Ollama Shadow Tools Reference
 
-Complete reference for all tools available to the AIRecon agent — native Python tools, Docker sandbox tools, and git-cloned tool scripts.
+Complete reference for all tools available to the Ollama Shadow agent — native Python tools, Docker sandbox tools, and git-cloned tool scripts.
 
 ## Table of Contents
 
@@ -40,7 +40,7 @@ Complete reference for all tools available to the AIRecon agent — native Pytho
 
 ## 1. Tool Architecture Overview
 
-AIRecon exposes tools to the LLM through two layers:
+Ollama Shadow exposes tools to the LLM through two layers:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -63,7 +63,7 @@ AIRecon exposes tools to the LLM through two layers:
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│          Kali Linux Docker Container (airecon-sandbox)        │
+│          Kali Linux Docker Container (ollama-shadow-sandbox)        │
 │    60+ pre-installed tools, SecLists, FuzzDB, custom scripts  │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -84,7 +84,7 @@ These tools are implemented directly in Python and registered with the Ollama to
 
 ### 2.1 `execute` — Docker Sandbox Shell
 
-**Source:** `airecon/proxy/docker.py`
+**Source:** `ollama-shadow/proxy/docker.py`
 
 The single entry point for all shell command execution. Runs any bash command inside the isolated Kali Linux Docker container with full access to all pre-installed security tools.
 
@@ -153,7 +153,7 @@ execute(command="nuclei -l /workspace/example.com/output/live_hosts.txt -t /root
 
 ### 2.2 `browser_action` — Headless Chromium
 
-**Source:** `airecon/proxy/browser.py`
+**Source:** `ollama-shadow/proxy/browser.py`
 
 Controls a headless Chromium instance via Playwright and Chrome DevTools Protocol (CDP). The browser connects to the Chromium CDP server running inside the Docker sandbox on port 9222.
 
@@ -265,7 +265,7 @@ browser_action(action="execute_js", js_code="""
 
 ### 2.3 `web_search` — DuckDuckGo Search
 
-**Source:** `airecon/proxy/web_search.py`
+**Source:** `ollama-shadow/proxy/web_search.py`
 
 Performs a live web search via DuckDuckGo during assessments. Used for CVE research, WAF bypass lookups, and technology-specific payload discovery.
 
@@ -320,7 +320,7 @@ web_search(query="SSTI Jinja2 payloads bypass WAF")
 
 ### 2.4 `create_vulnerability_report`
 
-**Source:** `airecon/proxy/reporting.py`
+**Source:** `ollama-shadow/proxy/reporting.py`
 
 Generates a structured, CVSS-scored Markdown vulnerability report and saves it to `workspace/<target>/vulnerabilities/`. The tool enforces quality gates — it requires a working Proof of Concept and validates CVSS inputs before accepting a report.
 
@@ -384,7 +384,7 @@ create_vulnerability_report(
 
 ### 2.5 `create_file`
 
-**Source:** `airecon/proxy/filesystem.py`
+**Source:** `ollama-shadow/proxy/filesystem.py`
 
 Creates a file in the workspace directory. Enforces workspace confinement — paths outside `workspace/` are rejected.
 
@@ -426,9 +426,9 @@ create_file(
 
 ### 2.6 `read_file`
 
-**Source:** `airecon/proxy/filesystem.py`
+**Source:** `ollama-shadow/proxy/filesystem.py`
 
-Reads a file from the workspace. Also used to load Skill documents from `airecon/proxy/skills/`. Enforces workspace confinement for workspace paths; skill paths use absolute paths from the installed package.
+Reads a file from the workspace. Also used to load Skill documents from `ollama-shadow/proxy/skills/`. Enforces workspace confinement for workspace paths; skill paths use absolute paths from the installed package.
 
 **Schema:**
 
@@ -448,7 +448,7 @@ Reads a file from the workspace. Also used to load Skill documents from `airecon
 read_file(path="example.com/output/nuclei.txt")
 
 # Load a skill for a detected technology
-read_file(path="/home/user/.../airecon/proxy/skills/vulnerabilities/ssrf.md")
+read_file(path="/home/user/.../ollama-shadow/proxy/skills/vulnerabilities/ssrf.md")
 
 # Read a previously created script
 read_file(path="example.com/tools/exploit.py")
@@ -746,7 +746,7 @@ headi -u https://example.com -o /workspace/example.com/output/header_injection.t
 | **toxicache** | `-u URL` | Cache poisoning/deception tester |
 | **csprecon** | `-d domain` | Content Security Policy analysis and bypass detection |
 | **semgrep** | `--config=auto .` | SAST — static analysis with security rules |
-| **trivy** | `image airecon-sandbox` or `fs /path` | Container and filesystem vulnerability scanner |
+| **trivy** | `image ollama-shadow-sandbox` or `fs /path` | Container and filesystem vulnerability scanner |
 | **bandit** | `-r /path/to/python/code` | Python SAST scanner |
 | **interactsh-client** | `-server oast.fun -n 5` | OOB callback listener for blind SSRF, XXE, RCE |
 | **crlfuzz** | Go | `-l urls.txt` | Fast CRLF injection / HTTP Response Splitting scanner |

@@ -1,6 +1,6 @@
 import pytest
-from airecon.proxy.correlation import run_correlation
-from airecon.proxy.agent.session import SessionData
+from ollama_shadow.proxy.correlation import run_correlation
+from ollama_shadow.proxy.agent.session import SessionData
 
 
 @pytest.fixture

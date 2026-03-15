@@ -1,4 +1,4 @@
-from airecon.proxy.agent.models import AgentState
+from ollama_shadow.proxy.agent.models import AgentState
 
 
 def test_agent_state_initializes_with_defaults():

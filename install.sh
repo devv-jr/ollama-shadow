@@ -17,27 +17,27 @@ fi
 
 echo -e "${GREEN}[+] Using Python: $PYTHON_CMD${NC}"
 
-# Function to uninstall airecon completely
-uninstall_airecon() {
+# Function to uninstall ollama-shadow completely
+uninstall_ollama_shadow() {
     echo -e "${YELLOW}[!] Cleaning previous installations...${NC}"
-    
+
     # 1. Uninstall from current environment (venv or otherwise)
-    if pip show airecon &> /dev/null; then
-        echo -e "${YELLOW}[!] Found existing AIRecon in current environment. Removing...${NC}"
-        pip uninstall -y airecon --break-system-packages 2>/dev/null || pip uninstall -y airecon 2>/dev/null
+    if pip show ollama-shadow &> /dev/null; then
+        echo -e "${YELLOW}[!] Found existing Ollama Shadow in current environment. Removing...${NC}"
+        pip uninstall -y ollama-shadow --break-system-packages 2>/dev/null || pip uninstall -y ollama-shadow 2>/dev/null
     fi
 
     # 2. Uninstall from system python user site (force clean slate)
-    if $PYTHON_CMD -m pip show airecon &> /dev/null; then
-         echo -e "${YELLOW}[!] Found existing AIRecon in user site ($PYTHON_CMD). Removing...${NC}"
-         $PYTHON_CMD -m pip uninstall -y airecon --break-system-packages 2>/dev/null || true
+    if $PYTHON_CMD -m pip show ollama-shadow &> /dev/null; then
+         echo -e "${YELLOW}[!] Found existing Ollama Shadow in user site ($PYTHON_CMD). Removing...${NC}"
+         $PYTHON_CMD -m pip uninstall -y ollama-shadow --break-system-packages 2>/dev/null || true
     fi
 
-    # Try to clear pip cache for airecon
+    # Try to clear pip cache for ollama-shadow
     echo -e "${YELLOW}[!] Clearing pip cache definition...${NC}"
-    pip cache remove airecon &> /dev/null || true
-    $PYTHON_CMD -m pip cache remove airecon &> /dev/null || true
-    
+    pip cache remove ollama-shadow &> /dev/null || true
+    $PYTHON_CMD -m pip cache remove ollama-shadow &> /dev/null || true
+
     # Also remove build artifacts
     echo -e "${YELLOW}[!] Cleaning build artifacts...${NC}"
     rm -rf dist/ build/ *.egg-info
@@ -59,7 +59,7 @@ else
 fi
 
 # Clean previous installs
-uninstall_airecon
+uninstall_ollama_shadow
 
 echo -e "${GREEN}[+] Updating dependencies...${NC}"
 poetry install
@@ -75,7 +75,7 @@ echo -e "${GREEN}[+] Installing to ~/.local/bin...${NC}"
 mkdir -p "$HOME/.local/bin"
 
 # Find the built wheel
-WHEEL_FILE=$(find dist -name "airecon-*.whl" | head -n 1)
+WHEEL_FILE=$(find dist -name "ollama_shadow-*.whl" | head -n 1)
 if [ -z "$WHEEL_FILE" ]; then
     echo -e "${RED}[!] Build failed. No wheel file found.${NC}"
     exit 1
@@ -94,21 +94,21 @@ fi
 echo -e "${GREEN}[+] Done!${NC}"
 
 # Check location - verify using the INSTALLER path
-INSTALLED_BIN="$HOME/.local/bin/airecon"
+INSTALLED_BIN="$HOME/.local/bin/ollama-shadow"
 if [ ! -f "$INSTALLED_BIN" ]; then
-    echo -e "${YELLOW}[!] 'airecon' binary not found at $INSTALLED_BIN.${NC}"
+    echo -e "${YELLOW}[!] 'ollama-shadow' binary not found at $INSTALLED_BIN.${NC}"
     echo -e "${YELLOW}[!] Checking where it might be...${NC}"
-    $PYTHON_CMD -m pip show -f airecon | grep "bin/airecon" || true
+    $PYTHON_CMD -m pip show -f ollama-shadow | grep "bin/ollama-shadow" || true
 else
     echo -e "${GREEN}[+] Verified: $INSTALLED_BIN exists.${NC}"
     # Verify exact version
     $INSTALLED_BIN --version
-    
+
     # Check if it's in PATH
-    if command -v airecon &> /dev/null; then
-        echo -e "${GREEN}[+] 'airecon' is in your PATH.${NC}"
+    if command -v ollama-shadow &> /dev/null; then
+        echo -e "${GREEN}[+] 'ollama-shadow' is in your PATH.${NC}"
     else
-        echo -e "${YELLOW}[!] 'airecon' is installed but NOT in your PATH.${NC}"
+        echo -e "${YELLOW}[!] 'ollama-shadow' is installed but NOT in your PATH.${NC}"
         echo -e "You need to add ~/.local/bin to your PATH."
         echo -e "Add this to your .bashrc or .zshrc:"
         echo -e "  export PATH=\"\$HOME/.local/bin:\$PATH\""

@@ -1,4 +1,4 @@
-name: AIRecon CI
+name: Ollama Shadow CI
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
     - name: Lint with autopep8
       run: |
         # Ensure codebase matches basic pep8 style without breaking builds entirely
-        poetry run autopep8 --in-place --recursive airecon tests || true
+        poetry run autopep8 --in-place --recursive ollama-shadow tests || true
         
     - name: Test with pytest
       run: |
