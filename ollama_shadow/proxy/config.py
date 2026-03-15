@@ -15,6 +15,27 @@ APP_DIR_NAME = ".ollama-shadow"
 CONFIG_FILENAME = "config.json"
 
 
+_container_runtime_cache: str | None = None
+
+
+def get_container_runtime() -> str:
+    """Return the container runtime binary: 'podman' if available, else 'docker'.
+
+    Podman is preferred because it runs daemonless (no /var/run/docker.sock needed).
+    Result is cached after the first call.
+    """
+    global _container_runtime_cache
+    if _container_runtime_cache is None:
+        import shutil
+        if shutil.which("podman"):
+            _container_runtime_cache = "podman"
+        elif shutil.which("docker"):
+            _container_runtime_cache = "docker"
+        else:
+            _container_runtime_cache = "docker"  # fallback, will fail with clear error
+    return _container_runtime_cache
+
+
 _workspace_root_cache: Path | None = None
 
 

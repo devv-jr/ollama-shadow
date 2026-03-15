@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from .config import get_config, get_workspace_root
+from .config import get_config, get_workspace_root, get_container_runtime
 
 logger = logging.getLogger("ollama_shadow.docker_engine")
 
@@ -71,15 +71,15 @@ class DockerEngine:
     # ── Image Management ──
 
     async def ensure_image(self) -> bool:
-        """Check if Docker image exists, build if not."""
-        docker_bin = shutil.which("docker")
-        if not docker_bin:
-            logger.error("Docker is not installed or not in PATH")
+        """Check if Docker/Podman image exists, build if not."""
+        runtime = get_container_runtime()
+        if not shutil.which(runtime):
+            logger.error(f"{runtime} is not installed or not in PATH")
             return False
 
         # Check if image exists
         proc = await asyncio.create_subprocess_exec(
-            "docker",
+            runtime,
             "image",
             "inspect",
             self.IMAGE_NAME,
@@ -104,7 +104,7 @@ class DockerEngine:
         import sys
 
         proc = await asyncio.create_subprocess_exec(
-            "docker",
+            runtime,
             "build",
             "-t",
             self.IMAGE_NAME,
@@ -125,6 +125,7 @@ class DockerEngine:
 
     async def start_container(self, target: str | None = None) -> bool:
         """Start a sandbox container with /workspace volume mount."""
+        runtime = get_container_runtime()
         # Determine workspace path — CWD/workspace/ (captured at startup via
         # get_workspace_root())
         workspace_host = str(get_workspace_root())
@@ -136,7 +137,7 @@ class DockerEngine:
 
         # Start new container
         cmd = [
-            "docker",
+            runtime,
             "run",
             "-d",
             "--name",
@@ -184,7 +185,7 @@ class DockerEngine:
         """Stop and remove the sandbox container."""
         if self._container_name:
             proc = await asyncio.create_subprocess_exec(
-                "docker",
+                get_container_runtime(),
                 "rm",
                 "-f",
                 self._container_name,
@@ -200,7 +201,7 @@ class DockerEngine:
         """Stop any existing container with our name."""
         if self._container_name:
             proc = await asyncio.create_subprocess_exec(
-                "docker",
+                get_container_runtime(),
                 "rm",
                 "-f",
                 self._container_name,
@@ -251,7 +252,7 @@ class DockerEngine:
         # bash -l = login shell  →  reads /etc/profile → /etc/profile.d/*.sh → ~/.bash_profile
         # The explicit PATH env var above acts as a reliable fallback.
         cmd = [
-            "docker",
+            get_container_runtime(),
             "exec",
             "-u",
             "pentester",
@@ -380,7 +381,7 @@ class DockerEngine:
             # Also kill container-side processes to prevent zombies
             try:
                 kill_proc = await asyncio.create_subprocess_exec(
-                    "docker",
+                    get_container_runtime(),
                     "exec",
                     self._container_name,
                     "bash",
@@ -483,7 +484,7 @@ class DockerEngine:
                     "true"
                 )
                 proc = await asyncio.create_subprocess_exec(
-                    "docker",
+                    get_container_runtime(),
                     "exec",
                     self._container_name,
                     "bash",

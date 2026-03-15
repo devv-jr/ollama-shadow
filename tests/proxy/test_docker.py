@@ -2,6 +2,7 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from ollama_shadow.proxy.docker import DockerEngine
+from ollama_shadow.proxy.config import get_container_runtime
 
 
 @pytest.fixture
@@ -12,7 +13,8 @@ def docker_engine():
 
 @pytest.mark.asyncio
 async def test_ensure_image_skip_if_exists(docker_engine, mocker):
-    mocker.patch("shutil.which", return_value="/usr/bin/docker")
+    runtime = get_container_runtime()
+    mocker.patch("shutil.which", return_value=f"/usr/bin/{runtime}")
 
     mock_proc = AsyncMock()
     mock_proc.returncode = 0
@@ -22,9 +24,9 @@ async def test_ensure_image_skip_if_exists(docker_engine, mocker):
 
     result = await docker_engine.ensure_image()
     assert result is True
-    # create_subprocess_exec should be called with "docker image inspect"
+    # create_subprocess_exec should be called with "<runtime> image inspect"
     asyncio.create_subprocess_exec.assert_called_with(
-        "docker", "image", "inspect", docker_engine.IMAGE_NAME,
+        runtime, "image", "inspect", docker_engine.IMAGE_NAME,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL
     )

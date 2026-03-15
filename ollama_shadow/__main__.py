@@ -6,6 +6,8 @@ import argparse
 import sys
 import logging
 
+from ollama_shadow.proxy.config import get_container_runtime
+
 
 def main() -> None:
 
@@ -386,7 +388,7 @@ def _run_status(args) -> None:
         try:
             import shutil
             import subprocess as sp  # nosec B404
-            _docker = shutil.which("docker") or "docker"
+            _docker = shutil.which(get_container_runtime()) or get_container_runtime()
             result = sp.run(  # nosec B603
                 [_docker, "ps", "--filter", "name=ollama-shadow-sandbox-active",
                  "--format", "{{.Status}}"],
@@ -413,7 +415,7 @@ def _run_status(args) -> None:
         try:
             import shutil
             import subprocess as sp  # nosec B404
-            _docker = shutil.which("docker") or "docker"
+            _docker = shutil.which(get_container_runtime()) or get_container_runtime()
             result = sp.run(  # nosec B603
                 [_docker, "ps", "--filter", "name=ollama-shadow-searxng",
                  "--filter", "status=running", "--format", "{{.Status}}"],
@@ -493,7 +495,7 @@ def _unload_model_safely():
             # Fallback if config completely fails
             return
 
-        _docker = shutil.which("docker") or "docker"
+        _docker = shutil.which(get_container_runtime()) or get_container_runtime()
         url = cfg.ollama_url.rstrip("/")
         model = cfg.ollama_model
 
@@ -551,7 +553,7 @@ def _unload_model_safely():
                 flush=True)
             import shutil as _shutil
             import subprocess  # nosec B404
-            _docker2 = _shutil.which("docker") or "docker"
+            _docker2 = _shutil.which(get_container_runtime()) or get_container_runtime()
             subprocess.run(  # nosec B603
                 [_docker2, "rm", "-f", "ollama-shadow-sandbox-active"],
                 stdout=subprocess.DEVNULL,
@@ -638,9 +640,11 @@ def _run_clean(args) -> None:
     WARN = "⚠️ "
     BROOM = "🧹"
 
-    if not shutil.which("docker"):
-        print(f"{RED}[!] Docker is not installed or not in PATH.{RESET}")
+    if not shutil.which(get_container_runtime()):
+        print(f"{RED}[!] No container runtime (podman/docker) found.{RESET}")
         sys.exit(1)
+
+    _rt = get_container_runtime()
 
     def run(cmd: list[str],
             capture: bool = False) -> subprocess.CompletedProcess:
@@ -653,7 +657,7 @@ def _run_clean(args) -> None:
 
     def get_docker_df() -> dict:
         """Return dict with Docker disk usage totals."""
-        r = run(["docker", "system", "df", "--format",
+        r = run([_rt, "system", "df", "--format",
                 "{{json .}}"], capture=True)
         # docker system df --format json outputs multiple lines (one per type)
         totals = {
@@ -688,7 +692,7 @@ def _run_clean(args) -> None:
 
     # ── Show before state ──
     print(f"\n{CYAN}[Before Cleanup]{RESET}")
-    run(["docker", "system", "df"])
+    run([_rt, "system", "df"])
 
     freed_items: list[str] = []
 
@@ -698,13 +702,13 @@ def _run_clean(args) -> None:
         end=" ",
         flush=True)
     containers = run(
-        ["docker", "ps", "-a", "-q", "--filter", "name=ollama-shadow"],
+        [_rt, "ps", "-a", "-q", "--filter", "name=ollama-shadow"],
         capture=True
     )
     ids = containers.stdout.decode().strip().split() if containers.returncode == 0 else []
     if ids:
         for cid in ids:
-            run(["docker", "rm", "-f", cid])
+            run([_rt, "rm", "-f", cid])
         print(f"{CHECK} Removed {len(ids)} container(s)")
         freed_items.append(f"{len(ids)} orphan container(s)")
     else:
@@ -713,11 +717,11 @@ def _run_clean(args) -> None:
     # ── 2. Prune build cache ──
     keep = getattr(args, "keep_storage", "3gb")
     if keep == "0":
-        cache_cmd = ["docker", "builder", "prune", "-af"]
+        cache_cmd = [_rt, "builder", "prune", "-af"]
         label = "all build cache"
     else:
         cache_cmd = [
-            "docker",
+            _rt,
             "builder",
             "prune",
             "-f",
@@ -741,7 +745,7 @@ def _run_clean(args) -> None:
         f"{YELLOW}[3/4] Pruning unused Docker volumes...{RESET}",
         end=" ",
         flush=True)
-    vol_result = run(["docker", "volume", "prune", "-f"], capture=True)
+    vol_result = run([_rt, "volume", "prune", "-f"], capture=True)
     if vol_result.returncode == 0:
         vol_out = vol_result.stdout.decode(errors="replace")
         freed_vol = next((line for line in vol_out.splitlines()
@@ -759,7 +763,7 @@ def _run_clean(args) -> None:
             end=" ",
             flush=True)
         img_result = run(
-            ["docker", "rmi", "-f", "ollama-shadow-sandbox"], capture=True)
+            [_rt, "rmi", "-f", "ollama-shadow-sandbox"], capture=True)
         if img_result.returncode == 0:
             print(
                 f"{CHECK} Removed. Next `ollama-shadow start` will rebuild (~10-20 min).")
@@ -772,7 +776,7 @@ def _run_clean(args) -> None:
 
     # ── Show after state ──
     print(f"\n{CYAN}[After Cleanup]{RESET}")
-    run(["docker", "system", "df"])
+    run([_rt, "system", "df"])
 
     print(f"\n{GREEN}{BOLD}{CHECK} Cleanup complete!{RESET}")
     if freed_items:

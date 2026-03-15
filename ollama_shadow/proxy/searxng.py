@@ -13,6 +13,8 @@ import shutil
 import time
 from pathlib import Path
 
+from .config import get_container_runtime
+
 logger = logging.getLogger("ollama_shadow.searxng")
 
 SEARXNG_IMAGE = "docker.io/searxng/searxng:latest"
@@ -78,8 +80,8 @@ class SearXNGManager:
 
         Returns the URL if running, None if it failed to start.
         """
-        if not shutil.which("docker"):
-            logger.warning("Docker not found — skipping SearXNG auto-start")
+        if not shutil.which(get_container_runtime()):
+            logger.warning("No container runtime (podman/docker) found — skipping SearXNG auto-start")
             return None
 
         if await self._is_running():
@@ -109,10 +111,10 @@ class SearXNGManager:
 
     async def stop_container(self) -> None:
         """Stop and remove the SearXNG container."""
-        if not shutil.which("docker"):
+        if not shutil.which(get_container_runtime()):
             return
         proc = await asyncio.create_subprocess_exec(
-            "docker", "rm", "-f", CONTAINER_NAME,
+            get_container_runtime(), "rm", "-f", CONTAINER_NAME,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -127,7 +129,7 @@ class SearXNGManager:
     async def _is_running(self) -> bool:
         """Return True if the container is running AND responding to health check."""
         proc = await asyncio.create_subprocess_exec(
-            "docker", "ps",
+            get_container_runtime(), "ps",
             "--filter", f"name={CONTAINER_NAME}",
             "--filter", "status=running",
             "--format", "{{.Names}}",
@@ -144,7 +146,7 @@ class SearXNGManager:
     async def _image_exists(self) -> bool:
         """Return True if the SearXNG image is already present locally."""
         proc = await asyncio.create_subprocess_exec(
-            "docker", "images", "-q", SEARXNG_IMAGE,
+            get_container_runtime(), "images", "-q", SEARXNG_IMAGE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -155,7 +157,7 @@ class SearXNGManager:
         """Pull the SearXNG Docker image."""
         import sys
         proc = await asyncio.create_subprocess_exec(
-            "docker", "pull", SEARXNG_IMAGE,
+            get_container_runtime(), "pull", SEARXNG_IMAGE,
             stdout=sys.stdout,
             stderr=sys.stderr,
         )
@@ -169,14 +171,14 @@ class SearXNGManager:
         """Start the SearXNG container."""
         # Remove any stopped container with the same name first
         stop_proc = await asyncio.create_subprocess_exec(
-            "docker", "rm", "-f", CONTAINER_NAME,
+            get_container_runtime(), "rm", "-f", CONTAINER_NAME,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         await stop_proc.wait()
 
         cmd = [
-            "docker", "run", "-d",
+            get_container_runtime(), "run", "-d",
             "--name", CONTAINER_NAME,
             "--restart", "unless-stopped",
             "-p", f"{self.host_port}:{INTERNAL_PORT}",
