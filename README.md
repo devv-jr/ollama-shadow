@@ -1,41 +1,50 @@
 <h1 align="center">
-  <img src="images/logo.png" alt="AIRecon" width="200">
+  <img src="images/ollama.png" alt="Ollama Shadow" width="220">
 </h1>
-<h4 align="center">AI-Powered Autonomous Penetration Testing Agent</h4>
+
+<h4 align="center">Cloud-Powered Autonomous Penetration Testing Agent</h4>
+
 <p align="center">
   <img src="https://img.shields.io/badge/language-python-green.svg">
-  <img src="https://img.shields.io/badge/version-v0.1.5.beta-green.svg">
-  <img src="https://img.shields.io/badge/python-3.12%2B-blue.svg">
-  <img src="https://img.shields.io/badge/LLM-Ollama%20(local)-orange.svg">
-  <a href="https://github.com/pikpikcu/airecon/blob/master/LICENSE">
+  <img src="https://img.shields.io/badge/version-v0.1.0-green.svg">
+  <img src="https://img.shields.io/badge/python-3.12+-blue.svg">
+  <img src="https://img.shields.io/badge/LLM-Ollama%20Cloud-orange.svg">
+  <a href="https://github.com/YOUR-USERNAME/ollama-shadow/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/LICENSE-MIT-red.svg">
   </a>
 </p>
 
-AIRecon is an autonomous penetration testing agent that combines a self-hosted **Ollama LLM** with a **Kali Linux Docker sandbox**, native **Caido proxy integration**, a structured **RECON → ANALYSIS → EXPLOIT → REPORT pipeline**, and a real-time **Textual TUI** — completely offline, no API keys required.
+**Ollama Shadow** is an autonomous pentesting agent that combines **Ollama Cloud** (massive 70B–480B+ models with no local VRAM limits) with a **Kali Linux Docker sandbox**, native **Caido proxy** integration, a structured **RECON → ANALYSIS → EXPLOIT → REPORT** pipeline, and a real-time **Textual TUI** interface.
 
-![Airecon](images/airecon.png)
+It runs advanced cloud-based reasoning while keeping all tool execution and exploit running 100% local and secure.
+
+![Screenshot](images/ollama-shadow-demo.png)
+*(TUI screenshot in action — replace with your own)*
 
 ---
 
-## Why AIRecon?
+## Why Ollama Shadow?
 
-Commercial API-based models (OpenAI GPT-4, Claude, Gemini) become prohibitively expensive for recursive, autonomous recon workflows that can require thousands of LLM calls per session.
+Agents built on commercial APIs (GPT-4o, Claude 4, Gemini 2.5) get expensive in recursive pentest workflows (thousands of calls per session). Fully local setups are bottlenecked by model size (a Quadro T2000 4GB only runs ~3–8B models comfortably).
 
-AIRecon is built 100% for local, private operation.
+**Ollama Shadow** solves both problems:
+- Reasoning via **massive cloud models** (qwen3-coder:480b-cloud, gpt-oss:120b-cloud, etc.)
+- Tool execution (nmap, nuclei, metasploit…) runs on your local machine
+- Privacy: prompts and targets are never sent without your explicit control
 
-| Feature | AIRecon | Cloud-based agents |
-|---------|---------|-------------------|
-| API keys required | **No** | Yes |
-| Target data sent to cloud | **No** | Yes |
-| Works offline | **Yes** | No |
-| Caido integration | **Native** | None |
-| Session resume | **Yes** | Varies |
+| Feature                        | Ollama Shadow            | Pure cloud agents | 100% local agents  |
+|--------------------------------|--------------------------|-------------------|--------------------|
+| Models >70B without a GPU      | **Yes (Ollama Cloud)**   | Yes               | No                 |
+| API key required               | Only for cloud           | Yes               | No                 |
+| Target data sent to cloud      | Prompts only (optional)  | Yes               | No                 |
+| Works offline                  | Local fallback           | No                | Yes                |
+| Native Caido integration       | **Yes**                  | No                | Yes                |
+| Cost per long session          | Low (~$20/mo Pro)        | High              | $0 (hardware only) |
 
-- **Privacy First** — Target intelligence, tool output, and reports never leave your machine.
-- **Caido Native** — 5 built-in tools: list, replay, automate (`§FUZZ§`), findings, scope.
-- **Full Stack** — Kali sandbox + browser automation + custom fuzzer + Schemathesis API fuzzing + Semgrep SAST.
-- **Skills Knowledge Base** — 56 skill files, 289 keyword → skill auto-mappings covering every major vuln class.
+- **Hybrid privacy** — Choose cloud for intelligence, local for sensitive execution
+- **Caido built-in** — 5 native tools: list, replay, fuzz (§FUZZ§), findings, scope
+- **Full stack** — Kali sandbox + browser automation + custom fuzzer + Schemathesis + Semgrep
+- **Skill library** — 50+ predefined skills (vuln classes, tool mappings)
 
 ---
 
@@ -45,181 +54,149 @@ AIRecon is built 100% for local, private operation.
 RECON → ANALYSIS → EXPLOIT → REPORT
 ```
 
-Each phase has specific objectives, recommended tools, and automatic transition criteria. Phase enforcement is **soft** — the agent is guided but never blocked. Checkpoints run every 5 (phase eval), 10 (self-eval), and 15 (context compression) iterations.
+Guided phases with automatic transition criteria. Checkpoints every 5–15 iterations (phase eval, self-eval, context compression).
 
 ---
 
-## Model Requirements
+## Model Requirements (Cloud-first)
 
-AIRecon requires a model with **extended thinking** (`<think>` blocks) and **reliable tool-calling**. Capabilities are auto-detected via `ollama show` metadata.
+Ollama Shadow prioritizes cloud models with tool-calling and extended reasoning (`<think>` blocks).
 
-> **Minimum: 30B parameters.** Smaller models hallucinate tool output, invent CVEs, and skip scope rules.
+| Model                        | Pull command / tag                     | Local VRAM | Notes                              |
+|------------------------------|----------------------------------------|------------|------------------------------------|
+| **qwen3-coder:480b-cloud**   | `ollama pull qwen3-coder:480b-cloud`   | 0 GB       | **Best for coding/exploits**       |
+| **gpt-oss:120b-cloud**       | `ollama pull gpt-oss:120b-cloud`       | 0 GB       | Excellent general reasoning        |
+| **qwen3.5:122b-cloud**       | `ollama pull qwen3.5:122b-cloud`       | 0 GB       | Multimodal + tools                 |
+| qwen3:32b (local fallback)   | `ollama pull qwen3:32b`                | ~20 GB     | If not using cloud                 |
 
-| Model | Pull | VRAM | Notes |
-|-------|------|------|-------|
-| **Qwen3.5 122B** | `ollama pull qwen3.5:122b` | 48+ GB | Best quality |
-| **Qwen3 32B** | `ollama pull qwen3:32b` | 20 GB | **Recommended minimum** |
-| **Qwen3 30B-A3B** | `ollama pull qwen3:30b-a3b` | 16 GB | MoE — lower VRAM |
-
-**Known issues:** DeepSeek R1 produces incomplete function calls. Models < 30B are unreliable for full recon.
+**Recommended minimum (cloud):** any `-cloud` model with tool support.
+Models under 30B local tend to hallucinate CVEs or ignore scope constraints.
 
 ---
 
 ## Installation
 
-**Prerequisites:** Python 3.12+, Docker 20.10+, Ollama (running), Poetry 1.4+
+**Requirements:** Python 3.12+, Docker, Poetry, Ollama CLI, and an account at [ollama.com](https://ollama.com)
 
 ```bash
-git clone https://github.com/pikpikcu/airecon.git
-cd airecon
+git clone https://github.com/devv-jr/ollama-shadow.git
+cd ollama-shadow
 ./install.sh
 ```
 
-The install script installs Poetry if missing, runs `poetry install`, installs Playwright Chromium, and builds the wheel to `~/.local/bin`.
+The script installs dependencies, Playwright, and builds the binary at `~/.local/bin/ollama-shadow`.
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc if needed
+# Add to PATH if needed
 export PATH="$HOME/.local/bin:$PATH"
+source ~/.bashrc   # or ~/.zshrc
 
-airecon --version
+ollama-shadow --version
 ```
+
+**Ollama Cloud setup (required for cloud mode):**
+
+1. Create an account → [https://ollama.com](https://ollama.com)
+2. Generate an API Key → [https://ollama.com/settings/keys](https://ollama.com/settings/keys)
+3. Export it:
+
+```bash
+export OLLAMA_API_KEY=your-api-key-here
+```
+
 ---
 
 ## Configuration
 
-Config file: `~/.airecon/config.json` (auto-generated on first run).
+Config file: `~/.ollama-shadow/config.json` (auto-generated on first run)
 
 ```json
 {
-    "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "qwen3.5:122b",
-    "ollama_timeout": 2400.0,
-    "ollama_num_ctx": 131072,
-    "ollama_num_ctx_small": 65536,
-    "ollama_temperature": 0.15,
-    "ollama_num_predict": 32768,
-    "ollama_keep_alive": "60m",
-    "proxy_port": 3000,
-    "command_timeout": 900.0,
-    "docker_auto_build": true,
-    "deep_recon_autostart": true,
-    "agent_max_tool_iterations": 800,
-    "allow_destructive_testing": false,
-    "searxng_url": "http://localhost:8080",
-    "vuln_similarity_threshold": 0.7
+  "ollama_host": "https://ollama.com/api",
+  "ollama_model": "qwen3-coder:480b-cloud",
+  "ollama_api_key": "your-api-key (or use environment variable)",
+  "ollama_timeout": 2400.0,
+  "ollama_num_ctx": 131072,
+  "ollama_temperature": 0.15,
+  "proxy_port": 3000,
+  "command_timeout": 900.0,
+  "docker_auto_build": true,
+  "agent_max_tool_iterations": 800,
+  "allow_destructive_testing": false
 }
 ```
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `ollama_temperature` | `0.15` | Keep 0.1–0.2. Higher values cause hallucination. |
-| `ollama_num_ctx` | `131072` | Reduce to `32768` if VRAM is limited. |
-| `ollama_keep_alive` | `"60m"` | How long to keep model in VRAM. |
-| `deep_recon_autostart` | `true` | Bare domain inputs auto-expand to full recon. |
-| `allow_destructive_testing` | `false` | Unlocks aggressive modes (SQLi confirm, RCE chains). |
-| `command_timeout` | `900.0` | Max seconds per shell command in Docker. |
-| `vuln_similarity_threshold` | `0.7` | Jaccard dedup threshold for vulnerabilities. |
-
-**Remote Ollama:**
-```json
-{ "ollama_url": "http://192.168.1.100:11434", "ollama_model": "qwen3:32b" }
-```
+| Key                          | Default                    | Notes                                               |
+|------------------------------|----------------------------|-----------------------------------------------------|
+| `ollama_host`                | `https://ollama.com/api`   | Change to `http://localhost:11434` for local mode   |
+| `ollama_model`               | `qwen3-coder:480b-cloud`   | Use the `-cloud` suffix for cloud models            |
+| `ollama_temperature`         | `0.15`                     | 0.1–0.2 recommended to reduce hallucinations        |
+| `allow_destructive_testing`  | `false`                    | Unlocks aggressive exploit chains (use with care)   |
 
 ---
 
 ## Usage
 
 ```bash
-airecon start                          # start TUI
-airecon start --session <session_id>  # resume session
+ollama-shadow start                                              # Launch TUI (cloud by default)
+ollama-shadow start --model gpt-oss:120b-cloud --target example.com
+ollama-shadow start --session <id>                              # Resume a session
 ```
 
 **Example prompts:**
 
 ```
-# Full pipeline
 full recon on example.com
-pentest https://api.example.com
-
-# Specific tasks
-find subdomains of example.com
-scan ports on 10.0.0.1
-check for XSS on https://example.com/search
-test SQL injection on https://example.com/api/login parameter: username
-run schemathesis on https://example.com/openapi.json
-
-# Authenticated testing
-login to https://example.com/login with admin@example.com / password123 then test for IDOR
-test https://app.example.com with TOTP: JBSWY3DPEHPK3PXP
-
-# Multi-agent
-spawn an XSS specialist on https://example.com/search
-run parallel recon on: example.com, sub.example.com, api.example.com
-
-# Caido
-replay request #1234 with a modified Authorization header
-use Caido to fuzz the username parameter in request #45 with §FUZZ§ markers
+pentest https://api.target.com
+find subdomains and scan ports on 10.10.10.10
+test XSS on https://target.com/search?q=
+test SQLi on login form parameter: username
+spawn XSS specialist + SQLi specialist in parallel
+use Caido to fuzz Authorization header in request #42
 ```
 
 ---
 
-## Workspace
+## Workspace & Sessions
 
 ```
 workspace/<target>/
-├── output/          # Raw tool outputs (nmap, httpx, nuclei, subfinder, ...)
-├── tools/           # AI-generated exploit scripts (.py, .sh)
+├── output/          # Raw tool output (nmap, nuclei…)
+├── tools/           # AI-generated exploit scripts
 └── vulnerabilities/ # Verified vulnerability reports (.md)
 ```
 
-Sessions persist at `~/.airecon/sessions/<session_id>.json` — subdomains, ports, technologies, URLs, vulnerabilities (Jaccard dedup), auth tokens, and completed phases.
+Sessions are stored at `~/.ollama-shadow/sessions/<id>.json` — persists subdomains, verified vulns (Jaccard dedup), auth tokens, and completed phases.
 
 ---
 
 ## Troubleshooting
 
-**Ollama OOM / HTML error page** — Most common on long sessions or large models near VRAM limits.
-
-```bash
-sudo systemctl restart ollama
-```
-
-```json
-// Reduce context for 16–20 GB VRAM setups
-{ "ollama_num_ctx": 32768, "ollama_num_ctx_small": 16384, "ollama_num_predict": 8192 }
-```
-
-**Agent loops/stalls** — Usually a reasoning failure. Try a larger model, or reduce `ollama_temperature` to `< 0.2`.
-
-**Docker sandbox not starting:**
-```bash
-docker build -t airecon-sandbox airecon/containers/kali/
-```
-
-**Caido connection refused** — Caido must be running before AIRecon. Default: `127.0.0.1:48080`.
-
-**PATH not found after install:**
-```bash
-export PATH="$HOME/.local/bin:$PATH" && source ~/.zshrc
-```
+- **Cloud: "No model found"** → Verify `OLLAMA_API_KEY` and the `-cloud` suffix in the model name.
+- **OOM / slowness** → Lower `ollama_num_ctx` to `32768` or switch to a smaller model.
+- **Docker build failure** → Run `docker build -t ollama-shadow-sandbox containers/kali/` manually.
 
 ---
 
-## Documentation
+## Additional Documentation
 
 - [Features](docs/features.md)
-- [Configuration Reference](docs/configuration.md)
-- [Tool Reference](docs/tools.md)
-- [Adding Custom Skills](docs/development/creating_skills.md)
+- [Full Configuration Reference](docs/configuration.md)
+- [Tools & Skills](docs/tools.md)
+- [Adding Custom Skills](docs/custom-skills.md)
 
 ---
 
 ## License
 
-MIT License. See `LICENSE` for details.
+MIT License. See [LICENSE](LICENSE).
 
 ---
 
 ## Disclaimer
 
-AIRecon is built strictly for **educational purposes, ethical hacking, and authorized security assessments**. Any actions related to the material in this tool are solely your responsibility. Do not use this tool on systems or networks you do not own or have explicit permission to test.
+Ollama Shadow is intended for educational purposes, ethical hacking, and authorized security assessments only. Any use against systems without explicit written permission is solely the responsibility of the user. Do not use this tool on networks or targets you do not own or have authorization to test.
+
+---
+
+⭐ Star the repo if you find it useful, and feel free to contribute! 🔥
